@@ -157,51 +157,51 @@ You can customize this behavior. See the parameter hint above `dMon.GetOrder` fo
 
 When a monitor is added / removed, the script automatically updates the hotkeys to reflect the change. For example, say I have the following monitors:
 
-<pre>
+```
  ____________
  | 2  || 3  |
  ------------
    ______
    | 1  |
    ------
-</pre>
+```
 
 Then I remove the top-right monitor...
 
-<pre>
+```
  ______
  | 2  |
  ------
    ______
    | 1  |
    ------
-</pre>
+```
 
 The script will unbind `modifier & 3`, so it no longer triggers the function.
 
 If I remove the top-left monitor instead of the top-right monitor...
 
-<pre>
+```
      ______
      | 2  |
      ------
    ______
    | 1  |
    ------
-</pre>
+```
 
 The script still unbinds `modifier & 3`, and `modifier & 2` will now target the top-right monitor.
 
 If I add the top-left monitor back...
 
-<pre>
+```
  ____________
  | 2  || 3  |
  ------------
    ______
    | 1  |
    ------
-</pre>
+```
 
 The script binds `modifier & 3`, and `modifier & 2` targets the top-left monitor, and `modifier & 3` targets the top-right monitor.
 
