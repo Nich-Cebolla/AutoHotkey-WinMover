@@ -122,9 +122,9 @@ If my object is `{ X: 0.5, Y: 0, W: 0.5, H: 1 }`, then the window will be moved 
 For example, here is the default map object:
 ```ahk
 Presets := Map(
-    1, { X: 0, Y: 0, W: 0.5, H: 1 }
-  , 2, { X: 0.5, Y: 0, W: 0.5, H: 1 }
-  , 3, { X: 0, Y: 0, W: 1, H: 1 }
+    1, { X: 0, Y: 0, W: 0.5, H: 1 } ; left-half
+  , 2, { X: 0.5, Y: 0, W: 0.5, H: 1 } ; right-half
+  , 3, { X: 0, Y: 0, W: 1, H: 1 } ; full-screen
 )
 ```
 
@@ -136,9 +136,9 @@ Presets := Map(
 If I wanted to be able to tile the windows using 1/4 of the monitor's work area, I would add objects like this:
 ```ahk
 Presets := Map(
-    1, { X: 0, Y: 0, W: 0.5, H: 1 }
-  , 2, { X: 0.5, Y: 0, W: 0.5, H: 1 }
-  , 3, { X: 0, Y: 0, W: 1, H: 1 }
+    1, { X: 0, Y: 0, W: 0.5, H: 1 } ; left-half
+  , 2, { X: 0.5, Y: 0, W: 0.5, H: 1 } ; right-half
+  , 3, { X: 0, Y: 0, W: 1, H: 1 } ; full-screen
   , 4, { X: 0, Y: 0, W: 0.5, H: 0.5 } ; top-left quarter
   , 5, { X: 0.5, Y: 0, W: 0.5, H: 0.5 } ; top-right quarter
   , 6, { X: 0, Y: 0.5, W: 0.5, H: 0.5 } ; bottom-left quarter
@@ -149,9 +149,9 @@ Presets := Map(
 The key does not have to be a number. The following is also valid:
 ```ahk
 Presets := Map(
-    1, { X: 0, Y: 0, W: 0.5, H: 1 }
-  , 2, { X: 0.5, Y: 0, W: 0.5, H: 1 }
-  , 3, { X: 0, Y: 0, W: 1, H: 1 }
+    1, { X: 0, Y: 0, W: 0.5, H: 1 } ; left-half
+  , 2, { X: 0.5, Y: 0, W: 0.5, H: 1 } ; right-half
+  , 3, { X: 0, Y: 0, W: 1, H: 1 } ; full-screen
   , 'q', { X: 0, Y: 0, W: 0.5, H: 0.5 } ; top-left quarter
   , 'w', { X: 0.5, Y: 0, W: 0.5, H: 0.5 } ; top-right quarter
   , 'a', { X: 0, Y: 0.5, W: 0.5, H: 0.5 } ; bottom-left quarter
