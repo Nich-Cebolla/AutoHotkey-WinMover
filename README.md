@@ -78,7 +78,7 @@ CapsLock & LButton::WinMoverObj.DynamicMoveControl_CapsLock()
 
 Overwrite "CHORDMODIFIER" with whatever modifier key you want to use with key chords.
 
-You only need one set of each group. If you use CapsLock as a modifier key, use the methods that end in "_CapsLock" and delete the other set. Overwrite "MOD#" with the actual modifier key. Once finished, run the script and try it out.
+You only need one set of each group. If you use CapsLock as a modifier key, use the methods that end in "_CapsLock" and delete the other set. If using a different modifier key, overwrite "MOD#" with the actual modifier key and delete the CapsLock set. Once finished, run the script and try it out.
 
 # About the methods
 
