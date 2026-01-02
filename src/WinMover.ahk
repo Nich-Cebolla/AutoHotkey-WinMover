@@ -1,0 +1,2715 @@
+﻿
+class WinMover {
+    static __New() {
+        this.DeleteProp('__New')
+        this.Collection := Map()
+        this.Collection.CaseSense := this.Collection.Default := false
+        Proto := this.Prototype
+        Proto.MonNum := 1
+        Proto.Presets := Map(
+            1, { X: 0, Y: 0, W: 0.5, H: 1 }
+          , 2, { X: 0.5, Y: 0, W: 0.5, H: 1 }
+          , 3, { X: 0, Y: 0, W: 1, H: 1 }
+        )
+        Proto.ChordTimerDuration := 2000
+        Proto.TerminateMoveCallback := (*) => !GetKeyState('LButton', 'P')
+        Proto.TerminateSizeCallback := (*) => !GetKeyState('RButton', 'P')
+    }
+    /**
+     * @param {String} [ChordModifier] - If set, the modifier key that is used for key chords.
+     * Leave unset to prevent setting the key chord hotkeys. You can call
+     * {@link WinMover.Prototype.EnableKeyChords} at any time to enable the hotkeys.
+     *
+     * @param {Map} [Presets] - You can set `Presets` with a `Map` object to define custom options to
+     * use when resizing a window using {@link WinMover.Prototype.Chord}. The map keys correspond to
+     * the second key of the key chord. The map values are objects specifying the target position
+     * and size of the currently active window.
+     *
+     * The objects have properties { X, Y, W, H }. Each property value is a quotient that is multiplied
+     * with the monitor's corresponding value.
+     *
+     * For example, if my object is { X: 0, Y: 0, W: 1, H: 1 }, then the window will be moved to the
+     * top-left corner of the monitor and the window will be resized to occupy the monitor's entire
+     * work area.
+     *
+     * If my object is { X: 0.5, Y: 0, W: 0.5, H: 1 }, then the window will be moved to the top-center
+     * position of the monitor's work area, and the window will be resized to occupy the right-half
+     * of the monitor's work area.
+     *
+     * The built-in default has three options:
+     * - 1 : { X: 0, Y: 0, W: 0.5, H: 1 } (the window will occupy the left half of the monitor)
+     * - 2 : { X: 0.5, Y: 0, W: 0.5, H: 1 } (the window will occupy the right half of the monitor)
+     * - 3 : { X: 0, Y: 0, W: 1, H: 1 } (the window will occupy the entire monitor)
+     *
+     * See the README for more details.
+     *
+     * @param {Integer} [ChordTimerDuration = 2000] - The maximum number of milliseconds permitted
+     * to elapse after initiating a key chord before the timer expires.
+     */
+    __New(ChordModifier?, Presets?, ChordTimerDuration := 2000) {
+        this.ChordModifier := ChordModifier
+        ; Assign a unique id and cache a reference to this object within the
+        ; ParseXlsx.Collection map. This allows related objects to obtain a reference
+        ; to one another without creating a reference cycle.
+        loop 100 {
+            n := Random(1, 4294967295)
+            if !WinMover.Collection.Has(n) {
+                this.id := n
+                WinMover.Collection.Set(n, this)
+                break
+            }
+        }
+        ObjRelease(ObjPtr(this))
+        if IsSet(Presets) {
+            this.Presets := Presets
+        }
+        this.ChordTimerDuration := -Abs(ChordTimerDuration)
+        this.Timer := 0
+        if IsSet(ChordModifier) {
+            this.EnableKeyChords(ChordModifier)
+        }
+    }
+    Call(Hwnd, X, Y, W, H, MonNum?) {
+        mon := dMon[MonNum ?? this.MonNum]
+        WinMove(
+            mon.LeftW + mon.WidthW * X
+          , mon.TopW + mon.HeightW * Y
+          , mon.WidthW * W
+          , mon.HeightW * H
+          , Hwnd
+        )
+    }
+    CallHelper(Hwnd, PresetKey) {
+        if this.Presets.Has(PresetKey) {
+            preset := this.Presets.Get(PresetKey)
+        } else if this.Base.Presets.Has(PresetKey) {
+            preset := this.Base.Presets.Get(PresetKey)
+        } else {
+            throw UnsetItemError('Item not found.', -1, PresetKey)
+        }
+        this(Hwnd, preset.X, preset.Y, preset.W, preset.H)
+    }
+    Chord(Value, *) {
+        if this.Timer {
+            SetTimer(this.Timer, 0)
+            this.Timer := 0
+            this.CallHelper(WinGetId('A'), Value)
+            this.__UnsetChordKeys()
+        } else {
+            this.MonNum := Value
+            this.Timer := WinMover_Timer.Bind(this.id)
+            this.__SetChordKeys()
+            SetTimer(this.Timer, this.ChordTimerDuration)
+        }
+    }
+    Chord_CapsLock(Value, *) {
+        capsLockState := GetKeyState('CapsLock', 'T')
+        if this.Timer {
+            SetTimer(this.Timer, 0)
+            this.Timer := 0
+            this.CallHelper(WinGetId('A'), Value)
+            ; If caps lock was off when "Chord" was first called
+            if this.capsLockState {
+                ; If caps lock is currently down
+                if GetKeyState('CapsLock', 'P') {
+                    SetCapsLockState(1)
+                } else {
+                    SetCapsLockState(0)
+                }
+            ; If caps lock was on when "Chord" was first called and if caps lock is currently down
+            } else if GetKeyState('CapsLock', 'P') {
+                SetCapsLockState(0)
+            } else {
+                SetCapsLockState(1)
+            }
+            this.__UnsetChordKeys()
+        } else {
+            this.MonNum := Value
+            this.CapsLockState := capsLockState
+            this.Timer := WinMover_Timer_CapsLock.Bind(this.id)
+            this.__SetChordKeys()
+            SetTimer(this.Timer, this.ChordTimerDuration)
+        }
+    }
+    DynamicMove(*) {
+        MouseMode := CoordMode('Mouse', 'Screen')
+        DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
+        MouseGetPos(&x, &y, &hwnd)
+        if !hwnd {
+            this.ShowTooltip('No window found')
+            return
+        }
+        if WinGetMinMax(hwnd) {
+            WinRestore(hwnd)
+            mon := dMon(dMon.FromWin(hwnd))
+            WinMove(
+                wx := mon.LeftW
+              , wy := mon.TopW
+              , ww := mon.WidthW
+              , wh := mon.HeightW
+              , hwnd
+            )
+        } else {
+            WinGetPos(&wx, &wy, &ww, &wh, hwnd)
+        }
+        cb := this.TerminateMoveCallback
+        loop {
+            if cb() {
+                break
+            }
+            MouseGetPos(&x2, &y2)
+            WinMove(wx + x2 - x, wy + y2 - y, , , hwnd)
+            sleep 10
+        }
+        CoordMode('Mouse', MouseMode)
+        DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+    }
+    DynamicMove_CapsLock(*) {
+        capsLockState := GetKeyState('CapsLock', 'T')
+        this.DynamicMove()
+        if GetKeyState('CapsLock', 'P') {
+            SetCapsLockState(capsLockState)
+        } else {
+            SetCapsLockState(!capsLockState)
+        }
+    }
+    DynamicMoveControl(*) {
+        MouseMode := CoordMode('Mouse', 'Client')
+        DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
+        MouseGetPos(&x, &y, , &hwnd, 2)
+        if !hwnd {
+            this.ShowTooltip('No window found')
+            return
+        }
+        ControlGetPos(&wx, &wy, &ww, &wh, hwnd)
+        cb := this.TerminateMoveCallback
+        loop {
+            if cb() {
+                break
+            }
+            MouseGetPos(&x2, &y2)
+            ControlMove(wx + x2 - x, wy + y2 - y, , , hwnd)
+            sleep 10
+        }
+        CoordMode('Mouse', MouseMode)
+        DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+    }
+    DynamicMoveControl_CapsLock(*) {
+        capsLockState := GetKeyState('CapsLock', 'T')
+        this.DynamicMoveControl()
+        if GetKeyState('CapsLock', 'P') {
+            SetCapsLockState(capsLockState)
+        } else {
+            SetCapsLockState(!capsLockState)
+        }
+    }
+    DynamicResize(*) {
+        MouseMode := CoordMode('Mouse', 'Screen')
+        DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
+        MouseGetPos(&x, &y, &hwnd)
+        if !hwnd {
+            this.ShowTooltip('No window found')
+            return
+        }
+        if WinGetMinMax(hwnd) {
+            WinRestore(hwnd)
+            mon := dMon(dMon.FromWin(hwnd))
+            WinMove(
+                wx := mon.LeftW
+              , wy := mon.TopW
+              , ww := mon.WidthW
+              , wh := mon.HeightW
+              , hwnd
+            )
+        } else {
+            WinGetPos(&wx, &wy, &ww, &wh, hwnd)
+        }
+        if x > wx + ww / 2 {
+            x_quotient := 1
+            GetX := XCallback1
+        } else {
+            x_quotient := -1
+            GetX := XCallback2
+        }
+        if y > wy + wh / 2 {
+            y_quotient := 1
+            GetY := YCallback1
+        } else {
+            y_quotient := -1
+            GetY := YCallback2
+        }
+        cb := this.TerminateSizeCallback
+        loop {
+            if cb() {
+                break
+            }
+            MouseGetPos(&x2, &y2)
+            WinMove(GetX(), GetY(), ww + (x2 - x) * x_quotient, wh + (y2 - y) * y_quotient, hwnd)
+            sleep 10
+        }
+
+        CoordMode('Mouse', MouseMode)
+        DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+        return
+
+        XCallback1() {
+            return wx
+        }
+        XCallback2() {
+            return wx + x2 - x
+        }
+        YCallback1() {
+            return wy
+        }
+        YCallback2() {
+            return wy + y2 - y
+        }
+    }
+    DynamicResize_CapsLock(*) {
+        capsLockState := GetKeyState('CapsLock', 'T')
+        this.DynamicResize()
+        if GetKeyState('CapsLock', 'P') {
+            SetCapsLockState(capsLockState)
+        } else {
+            SetCapsLockState(!capsLockState)
+        }
+    }
+    DynamicResizeControl(*) {
+        MouseMode := CoordMode('Mouse', 'Client')
+        DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
+        MouseGetPos(&x, &y, , &hwnd, 2)
+        if !hwnd {
+            this.ShowTooltip('No window found')
+            return
+        }
+        ControlGetPos(&wx, &wy, &ww, &wh, hwnd)
+        if x > wx + ww / 2 {
+            x_quotient := 1
+            GetX := XCallback1
+        } else {
+            x_quotient := -1
+            GetX := XCallback2
+        }
+        if y > wy + wh / 2 {
+            y_quotient := 1
+            GetY := YCallback1
+        } else {
+            y_quotient := -1
+            GetY := YCallback2
+        }
+        cb := this.TerminateSizeCallback
+        loop {
+            if cb() {
+                break
+            }
+            MouseGetPos(&x2, &y2)
+            ControlMove(GetX(), GetY(), ww + (x2 - x) * x_quotient, wh + (y2 - y) * y_quotient, hwnd)
+            sleep 10
+        }
+
+        CoordMode('Mouse', MouseMode)
+        DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+
+        return
+
+        XCallback1() {
+            return wx
+        }
+        XCallback2() {
+            return wx + x2 - x
+        }
+        YCallback1() {
+            return wy
+        }
+        YCallback2() {
+            return wy + y2 - y
+        }
+    }
+    DynamicResizeControl_CapsLock(*) {
+        capsLockState := GetKeyState('CapsLock', 'T')
+        this.DynamicResizeControl()
+        if GetKeyState('CapsLock', 'P') {
+            SetCapsLockState(capsLockState)
+        } else {
+            SetCapsLockState(!capsLockState)
+        }
+    }
+    /**
+     * @param {String} ChordModifier - The modifier key that is used for key chords.
+     */
+    EnableKeyChords(ChordModifier) {
+        this.ChordModifier := ChordModifier
+        this.InitialMonitorCount := MonitorGetCount()
+        mon_functions := this.MonitorFunctions := Map()
+        if ChordModifier = 'CapsLock' {
+            functions := this.Functions := Map()
+            for key in this.Presets {
+                functions.Set(key, ObjBindMethod(this, 'Chord_CapsLock', key))
+            }
+            loop MonitorGetCount() {
+                mon_functions.Set(A_Index, ObjBindMethod(this, 'Chord_CapsLock', A_Index))
+                HotKey(ChordModifier ' & ' A_Index, mon_functions.Get(A_Index), 'On')
+            }
+        } else {
+            functions := this.Functions := Map()
+            for key in this.Presets {
+                functions.Set(key, ObjBindMethod(this, 'Chord', key))
+            }
+            loop MonitorGetCount() {
+                mon_functions.Set(A_Index, ObjBindMethod(this, 'Chord', A_Index))
+                HotKey(ChordModifier ' & ' A_Index, mon_functions.Get(A_Index), 'On')
+            }
+        }
+    }
+    ShowTooltip(Str) {
+        static N := [1,2,3,4,5,6,7]
+        Z := N.Pop()
+        OM := CoordMode('Mouse', 'Screen')
+        OT := CoordMode('Tooltip', 'Screen')
+        MouseGetPos(&x, &y)
+        Tooltip(Str, x, y, Z)
+        SetTimer(_End.Bind(Z), -2000)
+        CoordMode('Mouse', OM)
+        CoordMode('Tooltip', OT)
+
+        _End(Z) {
+            ToolTip(,,,Z)
+            N.Push(Z)
+        }
+    }
+    __Delete() {
+        ObjPtrAddRef(this)
+        if WinMover.Collection.Has(this.id) {
+            WinMover.Collection.Delete(this.id)
+        }
+    }
+    __UnsetChordKeys() {
+        modifier := this.ChordModifier
+        n := this.InitialMonitorCount
+        for key, fn in this.Functions {
+            if !IsInteger(key) || key = 0 || key > n {
+                HotKey(modifier ' & ' key, fn, 'Off')
+            }
+        }
+    }
+    __SetChordKeys() {
+        modifier := this.ChordModifier
+        for key, fn in this.Functions {
+            HotKey(modifier ' & ' key, fn, 'On')
+        }
+    }
+}
+
+WinMover_Timer(id) {
+    if WinMover.Collection.Has(id) {
+        _winMover := WinMover.Collection.Get(id)
+        _winMover.Timer := 0
+        _winMover.__UnsetChordKeys()
+    }
+}
+WinMover_Timer_CapsLock(id) {
+    if WinMover.Collection.Has(id) {
+        _winMover := WinMover.Collection.Get(id)
+        _winMover.Timer := 0
+        _winMover.__UnsetChordKeys()
+        ; If caps lock was off when "Chord" was first called
+        if _winMover.capsLockState {
+            ; If caps lock is currently down
+            if GetKeyState('CapsLock', 'P') {
+                SetCapsLockState(1)
+            } else {
+                SetCapsLockState(0)
+            }
+        ; If caps lock was on when "Chord" was first called and if caps lock is currently down
+        } else if GetKeyState('CapsLock', 'P') {
+            SetCapsLockState(0)
+        } else {
+            SetCapsLockState(1)
+        }
+    }
+}
+
+/**
+ * @classdesc - `dMon` contains several functions for getting a monitor's handle. The `dMon`
+ * instance objects are intended to be disposable objects that retrieve the details from "GetMonitorInfo"
+ * and that expose methods and properties that simplify usage of that information.
+ */
+class dMon {
+    static __New() {
+        this.DeleteProp('__New')
+        dMon_SetConstants()
+        this.UseOrderedMonitors := true
+    }
+
+    /**
+     * @description
+     * @param {Integer} Hmon - The monitor handle.
+     * @returns {dMon} - The dMon instance object.
+     */
+    __New(Hmon) {
+        this.Buffer := Buffer(40)
+        this.Hmon := Hmon
+        NumPut('Uint', 40, this.Buffer)
+        if !DllCall('user32\GetMonitorInfo', 'ptr', Hmon, 'ptr', this.Buffer, 'int') {
+            throw OSError('``GetMonitorInfo`` failed.', -1)
+        }
+    }
+
+    ;@region FromDim
+    /**
+     * Gets the monitor handle using the dimensions of a rectangle.
+     * @param {Integer} X - The x-coordinate of the Top-Left corner of the rectangle.
+     * @param {Integer} Y - The y-coordinate of the Top-Left corner of the rectangle.
+     * @param {Integer} W - The Width of the rectangle.
+     * @param {Integer} H - The Height of the rectangle.
+     * @returns {Integer} - The Hmon of the monitor to which the rectangle has the largest area
+     * of intersection.
+     */
+    static FromDimensions(X, Y, W, H) => dMon.FromPos(X, Y, x+w, y+h)
+    ;@endregion
+
+
+
+    ;@region FromIndex
+    /**
+     * Gets the monitor handle using an index value.
+     * @param {Integer} Index - This index of the monitor as defined by the system.
+     * @returns {Integer} - The Hmon of the monitor.
+     */
+    static FromIndex(Index) {
+        MonitorGet(Index, &L, &T)
+        return this.FromPoint(L, T)
+    }
+    ;@endregion
+
+
+
+    ;@region FromMouse
+    /**
+     * @description - Gets the monitor handle using the position of the mouse pointer.
+     * Note that the Dpi_AWARENESS_CONTEXT value impacts the Result of this function. If the mouse
+     * is within a monitor that has a different Dpi than the system, the coordinates are adjusted.
+     * The AHK `CoordMode` does not influence the value.
+     * @param {VarRef} [OutX] - The variable to store the x-coordinate of the mouse pointer
+     * @param {VarRef} [OutY] - The variable to store the y-coordinate of the mouse pointer
+     * @returns {Integer} - The Hmon of the monitor that contains the mouse pointer.
+     */
+    static FromMouse(&OutX?, &OutY?) {
+        if Result := DllCall('User32.dll\GetCursorPos', 'ptr', Pt := Point(), 'int') {
+            OutX := Pt.X
+            OutY := Pt.Y
+            return DllCall('User32\MonitorFromPoint', 'ptr', Pt.Value, 'uint', 0 , 'ptr')
+        }
+    }
+    ;@endregion
+
+
+
+    ;@region FromPoint
+    /**
+     * @description - Gets monitor handle from a coordinate pair.
+     * @param {Integer} X - The x-coordinate of the point.
+     * @param {Integer} Y - The y-coordinate of the point.
+     * @returns {Integer} - The Hmon of the monitor that contains the point.
+     * @see {@link https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-monitorfrompoint}
+     */
+    static FromPoint(X, Y){
+        return DllCall('User32\MonitorFromPoint', 'ptr', (X & 0xFFFFFFFF) | (Y << 32), 'uint', 0 , 'ptr')
+    }
+    ;@endregion
+
+
+
+    ;@region FromRect
+    /**
+     * @description - Gets the monitor handle from a `Rect` object.
+     * @param {Rect} RectObj - The `Rect` object.
+     * @returns {Integer} - The Hmon of the monitor that contains the rectangle.
+     * @see {@link https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-monitorfromRect}
+     */
+    static FromRect(RectObj) {
+        return DllCall('User32.dll\MonitorFromRect', 'ptr', RectObj, 'UInt', 0, 'Uptr')
+    }
+    ;@endregion
+
+
+
+    ;@region FromPos
+    /**
+     * @description - Gets the monitor handle using a bounding rectangle.
+     * @param {Integer} L - The Left edge of the rectangle.
+     * @param {Integer} T - The Top edge of the rectangle.
+     * @param {Integer} R - The Right edge of the rectangle.
+     * @param {Integer} B - The Bottom edge of the rectangle.
+     * @returns {Integer} - The handle of the monitor that contains the rectangle.
+     * @see {@link https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-monitorfromRect}
+     */
+    static FromPos(L, T, R, B) {
+        return DllCall('User32.dll\MonitorFromRect', 'ptr', Rect(L, T, R, B), 'UInt', 0, 'Uptr')
+    }
+    ;@endregion
+
+
+
+    ;@region FromWin
+    /**
+     * @description - Gets the monitor handle using a window handle.
+     * @param {Integer} Hwnd - The window handle.
+     * @returns {Integer} - The monitor handle.
+     * @see {@link https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-monitorfromwindow}
+     */
+    static FromWin(Hwnd) {
+        return DllCall('User32.dll\MonitorFromWindow', 'ptr', Hwnd, 'UInt', 0x00000000, 'Uptr')
+    }
+    ;@endregion
+
+
+
+    ;@region Dpi
+    /**
+     * @class
+     * @description - Returns the DPI of the monitor using various input types.
+     */
+    class Dpi {
+        static __New() {
+            if this.Prototype.__Class == 'dMon.Dpi' {
+                this.DefineProp('__Call', { Call: MetaSetThreadDpiAwareness })
+            }
+        }
+        static Call(Hmon, DpiType := MDT_DEFAULT) {
+            if !DllCall('Shcore\GetDpiForMonitor', 'ptr', Hmon, 'UInt', DpiType, 'UInt*', &DpiX := 0, 'UInt*', &DpiY := 0, 'UInt') {
+                return DpiX
+            }
+        }
+        static Pos(Left, Top, Right, Bottom, DpiType := MDT_DEFAULT) => dMon.Dpi(dMon.FromPos(Left, Top, Right, Bottom), DpiType)
+        static Rect(RectObj, DpiType := MDT_DEFAULT) => dMon.Dpi(dMon.FromRect(RectObj), DpiType)
+        static Dimensions(X, Y, W, H, DpiType := MDT_DEFAULT) => dMon.Dpi(dMon.FromDimensions(X, Y, W, H), DpiType)
+        static Mouse(DpiType := MDT_DEFAULT) => dMon.Dpi(dMon.FromMouse(), DpiType)
+        static Point(X, Y, DpiType := MDT_DEFAULT) => dMon.Dpi(dMon.FromPoint(X, Y), DpiType)
+        static Win(Hwnd, DpiType := MDT_DEFAULT) => dMon.Dpi(dMon.FromWin(Hwnd), DpiType)
+    }
+    ;@endregion
+
+
+    static GetNonvisiblePosition(Width) {
+        right := 0
+        for mon in dMon {
+            right := Max(right, mon.Right)
+        }
+        return right + Width + 1
+    }
+
+
+
+    ;@region GetOrder
+    /**
+     * @description - Orders the display monitors according to the input values. The main benefit of
+     * using this function is that it allows one to reference the monitors using a static index value.
+     * Typically, when referring to a monitor using `MonitorGet`, the monitor which is referred to
+     * by a given index depends on the display settings of the system, which may change if the
+     * user adjusts the settings. When writing functions that depend on coordinates relative to an
+     * arbitrary monitor, this behavior may or may not be preferable.
+     * - Using the system settings' monitor index - At least on Windows 10+, but I believe on 7+
+     * as well, we can choose which monitor is "1", "2", "3", etc from Settings > "Display Settings".
+     * This changes what monitor is referenced by a given index when calling functions like
+     * `MonitorGet`, irrespective of the monitors' position relative to other monitors. With one set
+     * of settings, monitor 2 may be at coordinate (-1000, -1200), and later if the user changes
+     * the settings, monitor 2 may be at coordinate (1980, -750).
+     * - Using `UseOrderedMonitors` and `dMon[Index]` - `GetOrder` constructs an array of Hmon values,
+     * ordering them according to the input parameters. Monitors are ordered as a function of their
+     * position relative to one another. Example:
+     *   - If the user has a three-monitor setup, where one monitor is physically to the left and
+     * above the main display, and the third is physically to the right and above the main display,
+     * `UseOrderedMonitors` allows your function to refer to a monitor by index where the index will
+     * always refer to the main, top-left, or top-right monitor even if the user changes the system
+     * settings (as long as monitors' relative positions do not change). This type of behavior
+     * may be preferable for some; for others, the native behavior may be preferable.
+     *
+     * Here are some examples to clarify what this function does:
+     *
+     * Say a user has three monitors, the primary monitor is the laptop display at the bottom, and
+     * two external monitors adjacent to one another and above the laptop. When calling window
+     * functions that move a window to a position relative to a monitor's boundaries, the function
+     * needs a way to consistently refer to the monitors, so each monitor gets an index `1, 2, or 3`.
+     * The user prefers the primary monitor to be 1, the left monitor to be 2, and the right monitor
+     * to be 3. To accomplish this, call the function without parameters; the defaults will follow
+     * this order.
+     * @example
+     *   ;  ____________
+     *   ;  |    ||    |
+     *   ;  ------------
+     *   ;     ______
+     *   ;     |    |
+     *   ;     ------
+     *   MoveWindowToRightHalf(MonitorIndex, Hwnd) {
+     *       ; Get a new list every function call in case the user plugs in / removes a monitor.
+     *       List := dMon.GetOrder()
+     *       ; Get the `dMon` instance.
+     *       MonUnit := dMon(List[MonitorIndex])
+     *       ; Move, fitting the window in the right-half of the monitor's work area.
+     *       WinMove(MonUnit.MidXW, MonUnit.TW, MonUnit.WW / 2, MonUnit.HW, Hwnd)
+     *   }
+     * @
+     * Perhaps the user has three monitors where one is on top, and beneath it two adjacent monitors,
+     * and they want the top monitor to be 1, and the right monitor to be 2, and the left monitor to
+     * be 3.
+     * @example
+     *   ;     ______
+     *   ;     |    |
+     *   ;     ------
+     *   ;  ____________
+     *   ;  |    ||    |
+     *   ;  ------------
+     *   List := dMon.GetOrder('X', L2R := false, T2B := true, OriginIs1 := false)
+     * @
+     * Many people have a laptop but use an external monitor as their "primary", so it might be
+     * more intuitive for them to have their "primary" monitor be referenced by index 1, instead of
+     * the built-in display.
+     * @example
+     *   ; Left-most monitor would be 1. If two monitors both share the lowest X coordinate, the
+     *   ; monitor with the lowest Y coordinate between the two would be 1.
+     *   List := dMon.GetOrder(, , , OriginIs1 := false)
+     * @
+     * If your script is going to be frequently referring to a monitor using the ordered Hmon index,
+     * you can set `dMon.UseOrderedMonitors` to true and get a new `dMon` instance using item notation
+     * and the index. This uses the default values.
+     * @example
+     *   dMon.UseOrderedMonitors := true
+     *   MonUnit := dMon[1] ; The primary monitor
+     *   MonUnit := dMon[2] ; The top-left monitor
+     * @
+     * To use item notation with a different ordering schema, set `UseOrderedMonitors` to
+     * an object with one or more properties that have the same name as the parameters you want
+     * passed to `GetOrder`.
+     * @example
+     *   dMon.UseOrderedMonitors := { OriginIs1: false }
+     *   MonUnit := dMon[1] ; The top-left monitor
+     * @
+     * @param {String} [Primary='X'] - Determines which axis is primarily considered when ordering
+     * the monitors. When comparing two monitors, if their positions along the Primary axis are
+     * equal, then the alternate axis is compared and used to break the tie. Otherwise, only the
+     * Primary axis is used for comparison.
+     * - X: Check horizontal first.
+     * - Y: Check vertical first.
+     * @param {Boolean} [LeftToRight=true] - If true, the monitors are ordered in ascending order
+     * along the X axis when the dimension along the X axis is compared.
+     * @param {Boolean} [TopToBottom=true] - If true, the monitors are ordered in ascending order
+     * along the Y axis when the dimension along the Y axis is compared.
+     */
+    static GetOrder(Primary := 'X', LeftToRight := true, TopToBottom := true, OriginIs1 := true) {
+        List := []
+        Result := []
+        loop Result.Capacity := List.Capacity := MonitorGetCount() {
+            MonitorGet(A_Index, &L, &T)
+            Unit := { L: L, T: T }
+            if !L && !T && OriginIs1 {
+                Temp := Unit
+            } else {
+                List.Push(Unit)
+            }
+        }
+        OrderRects(List, Primary, LeftToRight, TopToBottom)
+        if IsSet(Temp) {
+            Result.Push(dMon.FromPoint(Temp.L, Temp.T))
+        }
+        for Item in List {
+            Result.Push(dMon.FromPoint(Item.L, Item.T))
+        }
+        return Result
+    }
+    ;@endregion
+
+
+    /**
+     * @description - Enables the usage of two suffixes. To use a suffix, append to any class method
+     * call an underscore followed by one or both of the following characters:
+     * S - Calls `SetThreadDpiAwarenessContext` with the default value prior to the method call.
+     * The value used is `DPI_AWARENESS_CONTEXT_DEFAULT`, a global variable. You can change it at
+     * any time.
+     * U - Returns a `dMon` instance using the return value from the method call, instead of returning
+     * the `Hmon` value.
+     * @example
+     *  MonUnit := dMon.FromWin_SU(WinGetId('A'))
+     *  MsgBox(MonUnit.LW) ; Left side of monitor's work area.
+     *  MsgBox(MonUnit.Dpi) ; Dpi of monitor.
+     * @
+     */
+    static __Call(Name, Params) {
+        Split := StrSplit(Name, '_')
+        if this.HasMethod(Split[1]) {
+            if InStr(Split[2], 'S') {
+                Result := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
+            }
+            if InStr(Split[2], 'U') {
+                if Params.Length {
+                    return this(this.%Split[1]%(Params*))
+                } else {
+                    return this(this.%Split[1]%())
+                }
+            } else {
+                if Params.Length {
+                    return this(this.%Split[1]%(Params*))
+                } else {
+                    return this(this.%Split[1]%())
+                }
+            }
+        } else {
+            throw PropertyError('Property not found.', -1, Name)
+        }
+    }
+
+    static __Enum(*) {
+        i := 0
+        return _Enum
+
+        _Enum(&Mon) {
+            if ++i > MonitorGetCount() {
+                return 0
+            }
+            Mon := dMon[i]
+            return 1
+        }
+    }
+
+    static __Item[N := 1] {
+        Get => this(this.FromIndex(N))
+    }
+
+    static UseOrderedMonitors {
+        Get => this.__UseOrderedMonitors
+        Set {
+            this.__UseOrderedMonitors := Value
+            if Value {
+                if IsObject(Value) {
+                    this.DefineProp('__Item', { Get: this.__Item_Get_Ordered_Params })
+                } else {
+                    this.DefineProp('__Item', { Get: this.__Item_Get_Ordered_Default })
+                }
+            } else {
+                this.DefineProp('__Item', { Get: this.__Item_Get_NotOrdered })
+            }
+        }
+    }
+
+
+    GetPos(&X?, &Y?, &W?, &H?) {
+        X := this.L
+        Y := this.T
+        W := this.W
+        H := this.H
+    }
+    SplitW(Divisor) => Rect.Split(this.L, this.W, Divisor)
+    SplitH(Divisor) => Rect.Split(this.T, this.H, Divisor)
+
+    GetPosW(&X?, &Y?, &W?, &H?) {
+        X := this.LW
+        Y := this.TW
+        W := this.WW
+        H := this.HW
+    }
+    SplitWW(Divisor) => Rect.Split(this.LW, this.WW, Divisor)
+    SplitHW(Divisor) => Rect.Split(this.TW, this.HW, Divisor)
+
+    TL => Point(this.L, this.T)
+    Topleft => Point(this.L, this.T)
+    BR => Point(this.R, this.B)
+    BottomRight => Point(this.R, this.B)
+    L => NumGet(this, 4, 'Int')
+    Left => NumGet(this, 4, 'Int')
+    X => NumGet(this, 4, 'Int')
+    T => NumGet(this, 8, 'Int')
+    Top => NumGet(this, 8, 'Int')
+    Y => NumGet(this, 8, 'Int')
+    R => NumGet(this, 12, 'Int')
+    Right => NumGet(this, 12, 'Int')
+    B => NumGet(this, 16, 'Int')
+    Bottom => NumGet(this, 16, 'Int')
+    W => this.R - this.L
+    Width => this.R - this.L
+    H => this.B - this.T
+    Height => this.B - this.T
+    MidX => (this.R - this.L) / 2
+    MidY => (this.B - this.T) / 2
+    Primary => NumGet(this, 36, 'Uint')
+    TLW => Point(this.LW, this.TW)
+    TopLeftW => Point(this.LW, this.TW)
+    BRW => Point(this.RW, this.BW)
+    BottomRightW => Point(this.RW, this.BW)
+    LW => NumGet(this, 20, 'int')
+    LeftW => NumGet(this, 20, 'int')
+    XW => NumGet(this, 20, 'Int')
+    TW => NumGet(this, 24, 'int')
+    TopW => NumGet(this, 24, 'int')
+    YW => NumGet(this, 24, 'Int')
+    RW => NumGet(this, 28, 'int')
+    RightW => NumGet(this, 28, 'int')
+    BW => NumGet(this, 32, 'int')
+    BottomW => NumGet(this, 32, 'int')
+    WW => this.RW - this.LW
+    WidthW => this.RW - this.LW
+    HW => this.BW - this.TW
+    HeightW => this.BW - this.TW
+    MidXW => (this.RW - this.LW) / 2
+    MidYW => (this.BW - this.TW) / 2
+    Dpi => dMon.Dpi(this.Hmon)
+    Dpi_Raw => dMon.Dpi(this.Hmon, MDT_RAW_DPI)
+    Dpi_Angular => dMon.Dpi(this.Hmon, MDT_ANGULAR_DPI)
+
+    Ptr => this.Buffer.Ptr
+    Size => this.Buffer.Size
+
+
+    static __Item_Get_NotOrdered(N, params*) {
+        return this(this.FromIndex(N))
+    }
+
+    static __Item_Get_Ordered_Default(N, params*) {
+        return this(this.GetOrder()[N])
+    }
+
+    static __Item_Get_Ordered_Params(N, params*) {
+        Params := this.__UseOrderedMonitors
+        return this(this.GetOrder(
+            HasProp(Params, 'Primary') ? Params.Primary : unset
+          , HasProp(Params, 'LeftToRight') ? Params.LeftToRight : unset
+          , HasProp(Params, 'TopToBottom') ? Params.TopToBottom : unset
+          , HasProp(Params, 'OriginIs1') ? Params.OriginIs1 : unset
+        )[N])
+    }
+}
+
+dMon_SetConstants(force := false) {
+    global
+    if IsSet(dMon_constants_set) && !force {
+        return
+    }
+
+    MDT_EFFECTIVE_DPI := 0
+    MDT_ANGULAR_DPI := 1
+    MDT_RAW_DPI := 2
+    MDT_DEFAULT := MDT_EFFECTIVE_DPI
+
+    dMon_constants_set := true
+}
+
+/*
+    Github: https://github.com/Nich-Cebolla/AutoHotkey-LibV2/blob/main/structs/Rect.ahk
+    Author: Nich-Cebolla
+    License: MIT
+*/
+
+;@region Intro
+
+/*
+    As of 8/11/25: Most methods are now tested and working.
+*/
+
+/**
+
+        Introduction
+
+    This library provides AHK functions and methods that call common User32.dll functions related to
+    RECTs, POINTs, and windows.
+
+        Using a buffer
+
+    This library is designed to allow RECT members of any struct at an arbitrary, static offset
+    to make use of the functions. For example, consider the WINDOWINFO struct. There are two
+    members that are RECTs: rcWindow at offset 4, and rcClient at offset 20. To avoid repetitive
+    code and unnecessary work, the `Window32` class initializes instances like this:
+    @example
+        MakeWinRectObjects() {
+            if this.Hwnd {
+                this()
+            }
+            this.Rect := WinRect(this.Hwnd, false, this.Buffer, this.Offset + 4)
+            this.ClientRect := WinRect(this.Hwnd, true, this.Buffer, this.Offset + 20)
+        }
+    @
+
+    Though separate AHK objects, the objects set to `this.Rect` and `this.ClientRect` both make use
+    of the same buffer. Whenever the values of the WINDOWINFO struct are changed, the changes are
+    reflected by the AHK objects as well.
+
+        Thread dpi awareness
+
+    This "__Call" method exposes a way to call `SetThreadDpiAwarenessContext` before any other method
+    by adding "_S" to the end of the method. By default, the thread dpi awareness context is set to
+    -4. To use another value, define a property "DpiAwarenessContext" on an individual object or
+    on a prototype object with the desired value. Typically you'll want to use -4 if your application
+    is dpi aware. See {@link https://www.autohotkey.com/docs/v2/misc/DPIScaling.htm}.
+    @example
+        ; The default is already -4; this is for example.
+        WinRect.Prototype.DpiAwarenessContext := -4
+        hwnd := WinExist('A')
+        if !hwnd {
+            throw Error('Window not found.', -1)
+        }
+        wrc := WinRect(hwnd)
+        ; This sets the dpi awareness context to -4 prior to performing the action
+        wrc.GetPos_S(&x, &y, &w, &h)
+    @
+
+    If you are not familiar with meta functions, you will want to read
+    {@link https://www.autohotkey.com/docs/v2/Objects.htm#Meta_Functions}.
+
+        Dll function addresses
+
+    To improve performance, the first time a dll function is called from this library, the address
+    is cached on `RectBase.Addresses`. The module handles are cached on `RectBase.Modules`. To
+    release the handles and free the memory, call `RectBase.UnloadAll`.
+*/
+
+;@endregion
+
+
+;@region Window32 cls
+
+/**
+ * Calls `GetWindowRect`. The object has a number of properties to make using it easier.
+ * - cbSize - 0:4 - The size of this structure.
+ * - rcWindow - 4:16 - The coordinates of the window.
+ * - rcClient - 20:16 - THe coordinates of the client area.
+ * - dwStyle - 36:4 - The window styles.
+ * {@link https://learn.microsoft.com/en-us/windows/desktop/winmsg/window-styles}
+ * - dwExStyle - 40:4 - The extende window styles.
+ * {@link https://learn.microsoft.com/en-us/windows/desktop/winmsg/extended-window-styles}
+ * - dwWindowStatus - 44:4 - The window status. Returns `1` if the window is active. Else, `0`.
+ * - cxWindowBorders - 48:4 - The width of the window borders in pixels.
+ * - cyWindowBorders - 52:4 - The height of the window border in pixels.
+ * - atomWindowType - 56:2 - The window class atom.
+ * {@link https://learn.microsoft.com/en-us/windows/desktop/api/winuser/nf-winuser-registerclassa}.
+ * - wCreatorVersion - 58:2 - The Windows version of the application that created the window.
+ */
+class Window32 {
+    static __New() {
+        this.DeleteProp('__New')
+        this.WindowStyles := Map()
+        this.WindowExStyles := Map()
+        this.WindowStyles.CaseSense := this.WindowExStyles.CaseSense := false
+        this.WindowStyles.Set(
+            'WS_OVERLAPPED', 0x00000000
+          , 'WS_POPUP', 0x80000000
+          , 'WS_CHILD', 0x40000000
+          , 'WS_MINIMIZE', 0x20000000
+          , 'WS_VISIBLE', 0x10000000
+          , 'WS_DISABLED', 0x08000000
+          , 'WS_CLIPSIBLINGS', 0x04000000
+          , 'WS_CLIPCHILDREN', 0x02000000
+          , 'WS_MAXIMIZE', 0x01000000
+          , 'WS_CAPTION', 0x00C00000
+          , 'WS_BORDER', 0x00800000
+          , 'WS_DLGFRAME', 0x00400000
+          , 'WS_VSCROLL', 0x00200000
+          , 'WS_HSCROLL', 0x00100000
+          , 'WS_SYSMENU', 0x00080000
+          , 'WS_THICKFRAME', 0x00040000
+          , 'WS_GROUP', 0x00020000
+          , 'WS_TABSTOP', 0x00010000
+          , 'WS_MINIMIZEBOX', 0x00020000
+          , 'WS_MAXIMIZEBOX', 0x00010000
+        )
+        this.WindowExStyles.Set(
+            'WS_EX_DLGMODALFRAME', 0x00000001
+          , 'WS_EX_NOPARENTNOTIFY', 0x00000004
+          , 'WS_EX_TOPMOST', 0x00000008
+          , 'WS_EX_ACCEPTFILES', 0x00000010
+          , 'WS_EX_TRANSPARENT', 0x00000020
+          , 'WS_EX_MDICHILD', 0x00000040
+          , 'WS_EX_TOOLWINDOW', 0x00000080
+          , 'WS_EX_WINDOWEDGE', 0x00000100
+          , 'WS_EX_CLIENTEDGE', 0x00000200
+          , 'WS_EX_CONTEXTHELP', 0x00000400
+          , 'WS_EX_RIGHT', 0x00001000
+          , 'WS_EX_LEFT', 0x00000000
+          , 'WS_EX_RTLREADING', 0x00002000
+          , 'WS_EX_LTRREADING', 0x00000000
+          , 'WS_EX_LEFTSCROLLBAR', 0x00004000
+          , 'WS_EX_RIGHTSCROLLBAR', 0x00000000
+          , 'WS_EX_CONTROLPARENT', 0x00010000
+          , 'WS_EX_STATICEDGE', 0x00020000
+          , 'WS_EX_APPWINDOW', 0x00040000
+        )
+        this.Prototype.cbSize := 60
+        this.Make(this)
+    }
+    static FromDesktop(Buf?, Offset := 0) => this(DllCall(RectBase.GetDesktopWindow, 'ptr'), Buf ?? unset, Offset)
+    static FromForeground(Buf?, Offset := 0) => this(DllCall(RectBase.GetForegroundWindow, 'ptr'), Buf ?? unset, Offset)
+    /**
+     * @param Cmd -
+     * - 2 : Returns a handle to the window below the given window.
+     * - 3 : Returns a handle to the window above the given window.
+     */
+    static FromCursor(Buf?, Offset := 0) {
+        pt := Point()
+        if !DllCall(RectBase.GetCursorPos, 'ptr', pt, 'int') {
+            throw OSError()
+        }
+        return this(DllCall(RectBase.WindowFromPoint, 'int', pt.Value, 'ptr'), Buf ?? unset, Offset)
+    }
+    static FromNext(Hwnd, Cmd, Buf?, Offset := 0) => this(DllCall(RectBase.GetNextWindow, 'ptr', IsObject(Hwnd) ? Hwnd.Hwnd : Hwnd, 'uint', Cmd, 'ptr'), Buf ?? unset, Offset)
+    static FromParent(Hwnd, Buf?, Offset := 0) => this(DllCall(RectBase.GetParent, 'ptr', IsObject(Hwnd) ? Hwnd.Hwnd : Hwnd, 'ptr'), Buf ?? unset, Offset)
+    static FromPoint(X, Y, Buf?, Offset := 0) => this(DllCall(RectBase.WindowFromPoint, 'int', (X & 0xFFFFFFFF) | (Y << 32), 'ptr'), Buf ?? unset, Offset)
+    static FromShell(Buf?, Offset := 0) => this(DllCall(RectBase.GetShellWindow, 'ptr'), Buf ?? unset, Offset)
+    static FromTop(Hwnd := 0, Buf?, Offset := 0) => this(DllCall(RectBase.GetTopWindow, 'ptr', IsObject(Hwnd) ? Hwnd.Hwnd : Hwnd, 'ptr'), Buf ?? unset, Offset)
+    /**
+     * @param Cmd -
+     * - GW_CHILD - 5 - The retrieved handle identifies the child window at the top of the Z order,
+     *  if the specified window is a parent window; otherwise, the retrieved handle is NULL. The
+     *  function examines only child windows of the specified window. It does not examine descendant
+     *  windows.
+     *
+     * - GW_ENABLEDPOPUP - 6 - The retrieved handle identifies the enabled popup window owned by the
+     *  specified window (the search uses the first such window found using GW_HwndNEXT); otherwise,
+     *  if there are no enabled popup windows, the retrieved handle is that of the specified window.
+     *
+     * - GW_HwndFIRST - 0 - The retrieved handle identifies the window of the same type that is highest
+     *  in the Z order. If the specified window is a topmost window, the handle identifies a topmost
+     *  window. If the specified window is a top-level window, the handle identifies a top-level
+     *  window. If the specified window is a child window, the handle identifies a sibling window.
+     *
+     * - GW_HwndLAST - 1 - The retrieved handle identifies the window of the same type that is lowest
+     *  in the Z order. If the specified window is a topmost window, the handle identifies a topmost
+     *  window. If the specified window is a top-level window, the handle identifies a top-level window.
+     *  If the specified window is a child window, the handle identifies a sibling window.
+     *
+     * - GW_HwndNEXT - 2 - The retrieved handle identifies the window below the specified window in
+     *  the Z order. If the specified window is a topmost window, the handle identifies a topmost
+     *  window. If the specified window is a top-level window, the handle identifies a top-level
+     *  window. If the specified window is a child window, the handle identifies a sibling window.
+     *
+     * - GW_HwndPREV - 3 - The retrieved handle identifies the window above the specified window in
+     *  the Z order. If the specified window is a topmost window, the handle identifies a topmost
+     *  window. If the specified window is a top-level window, the handle identifies a top-level
+     *  window. If the specified window is a child window, the handle identifies a sibling window.
+     *
+     * - GW_OWNER - 4 - The retrieved handle identifies the specified window's owner window, if any.
+     *  For more information, see Owned Windows.
+     */
+    static Get(Hwnd, Cmd, Buf?, Offset := 0) => this(DllCall(RectBase.GetWindow, 'ptr', IsObject(Hwnd) ? Hwnd.Hwnd : Hwnd, 'uint', Cmd, 'ptr'), Buf ?? unset, Offset)
+    static Make(Cls, Prefix := '', Suffix := '') {
+        Proto := Cls.Prototype
+        if !HasMethod(Cls, '__Call') {
+            Cls.DefineProp('__Call', { Call: RectSetThreadDpiAwareness__Call })
+        }
+        if !HasMethod(Proto, '__Call') {
+            Proto.DefineProp('__Call', { Call: RectSetThreadDpiAwareness__Call })
+        }
+        Proto.DefineProp(Prefix 'AdjustRectEx' Suffix, { Call: Window32AdjustRectEx })
+        Proto.DefineProp(Prefix 'BringToTop' Suffix, { Call: Window32BringToTop })
+        Proto.DefineProp(Prefix 'ChildFromCursor' Suffix, { Call: Window32ChildFromCursor })
+        Proto.DefineProp(Prefix 'ChildFromCursorEx' Suffix, { Call: Window32ChildFromCursorEx })
+        Proto.DefineProp(Prefix 'ChildFromPoint' Suffix, { Call: Window32ChildFromPoint })
+        Proto.DefineProp(Prefix 'ChildFromPointEx' Suffix, { Call: Window32ChildFromPointEx })
+        Proto.DefineProp(Prefix 'Dispose' Suffix, { Call: Window32Dispose })
+        Proto.DefineProp(Prefix 'Dpi' Suffix, { Get: Window32GetDpi })
+        Proto.DefineProp(Prefix 'EnumChildWindows' Suffix, { Call: Window32EnumChildWindows })
+        Proto.DefineProp(Prefix 'GetChildBoundingRect' Suffix, { Call: Window32GetChildBoundingRect })
+        Proto.DefineProp(Prefix 'GetClientRect' Suffix, { Call: Window32GetClientRect })
+        Proto.DefineProp(Prefix 'GetExStyle' Suffix, { Call: Window32GetExStyle })
+        Proto.DefineProp(Prefix 'Monitor' Suffix, { Get: Window32GetMonitor })
+        Proto.DefineProp(Prefix 'GetStyle' Suffix, { Call: Window32GetStyle })
+        Proto.DefineProp(Prefix 'HasExStyle' Suffix, { Call: Window32HasExStyle })
+        Proto.DefineProp(Prefix 'HasStyle' Suffix, { Call: Window32HasStyle })
+        Proto.DefineProp(Prefix 'IsChild' Suffix, { Call: Window32IsChild })
+        Proto.DefineProp(Prefix 'IsParent' Suffix, { Call: Window32IsParent })
+        Proto.DefineProp(Prefix 'MoveClient' Suffix, { Call: Window32MoveClient })
+        Proto.DefineProp(Prefix 'RealChildFromPoint' Suffix, { Call: Window32RealChildFromPoint })
+        Proto.DefineProp(Prefix 'SetActive' Suffix, { Call: Window32SetActive })
+        Proto.DefineProp(Prefix 'SetForeground' Suffix, { Call: Window32SetForeground })
+        Proto.DefineProp(Prefix 'SetParent' Suffix, { Call: Window32SetParent })
+        Proto.DefineProp(Prefix 'SetPosKeepAspectRatio' Suffix, { Call: Window32SetPosKeepAspectRatio })
+        Proto.DefineProp(Prefix 'Show' Suffix, { Call: Window32Show })
+        Proto.DefineProp(Prefix 'Visible' Suffix, { Get: Window32IsVisible })
+        Proto.DefineProp('Ptr', { Get: RectGetPtrFromBuffer })
+        Proto.DefineProp('Size', { Get: RectGetSizeFromBuffer })
+    }
+    __New(Hwnd := 0, Buf?, Offset := 0) {
+        this.Hwnd := Hwnd
+        if IsSet(Buf) {
+            if Buf.Size < this.cbSize + Offset {
+                throw Error('The buffer`'s size is insufficient. The size must be 60 + offset or greater.', -1)
+            }
+            this.Buffer := Buf
+        } else {
+            this.Buffer := Buffer(this.cbSize + Offset)
+        }
+        this.Offset := Offset
+        NumPut('uint', this.cbSize, this.Buffer, this.Offset)
+        this.MakeWinRectObjects()
+    }
+    Call(*) {
+        if !DllCall(RectBase.GetWindowInfo, 'ptr', this.Hwnd, 'ptr', this, 'int') {
+            throw OSError()
+        }
+    }
+    /**
+     * @description - Sets a callback that updates the object's property "Hwnd" when
+     * `Window32.Prototype.Call` is called. By default, `Window32.Prototype.Call` does not
+     * update the "Hwnd" property, and instead calls `GetWindowRect` with the current "Hwnd". When
+     * `Window32.Prototype.SetCallback` is called, a new method "Call" is defined that calls
+     * the callback function and uses the return value to update the property "Hwnd", then calls
+     * `GetWindowRect` using that new handle. To remove the callback and return the "Call" method
+     * to its original functionality, pass zero or an empty string to `Callback`.
+     *
+     * This library includes a number of functions that are useful for this, each beginning with
+     * "Window32Callback". However, your code will likely benefit from knowing when no window handle
+     * is returned by one of the functions, so your code can respond in some type of way. To write your
+     * own function that makes use of any of the built-in functions, you can define it this way:
+     *
+     * If your code does not need the `Window32` object, exclude it using the "*" operator:
+     * @example
+     *  MyHelperFunc(*) {
+     *      hwnd := Window32CallbackFromForeground()
+     *      if hwnd {
+     *          return hwnd
+     *      } else {
+     *          ; do something
+     *      }
+     *  }
+     *
+     *  win := Window32()
+     *  win.SetCallback(MyHelperFunc)
+     *  win()
+     * @
+     *
+     * If your code does need the `Window32` object, it will be the first and only parameter.
+     * @example
+     *  MyHelperFunc(win) {
+     *      hwnd := Window32CallbackFromParent(win)
+     *      if hwnd {
+     *          return hwnd
+     *      } else {
+     *          ; do something
+     *      }
+     *  }
+     *
+     *  hwnd := WinExist('A')
+     *  if !hwnd {
+     *      throw Error('Window not found.', -1)
+     *  }
+     *  win := Window32(hwnd)
+     *  win.SetCallback(MyHelperFunc)
+     *  win()
+     *  MsgBox(win.Hwnd == hwnd) ; 0 or 1 depending if a parent window exists
+     * @
+     *
+     * Here's how to use a `Point` object to return the window underneath the Cursor. To avoid relying
+     * on global variables, we're going to make a function object that retains a `Point` object as
+     * a property.
+     * @example
+     *  MyFuncObj := { Point: Point() }
+     *  MyFuncObj.Point.SetCallAction(2)
+     *  MyFuncObj.DefineProp('Call', { Call: MyFunc })
+     *  win := Window32()
+     *  win.SetCallback(MyFuncObj)
+     *  MyFuncObj := unset ; to demonstrate no global variables are needed (other than the function)
+     *  win()
+     *  MsgBox(win.Hwnd)
+     *
+     *  MyFunc(Self, *) {
+     *      hwnd := Self.Point.Call()
+     *      if hwnd {
+     *          return hwnd
+     *      } else {
+     *          ; do something
+     *      }
+     *  }
+     * @
+     *
+     * @param {*} Callback - A `Func` or callable object that accepts the `Window32` object as its
+     * only parameter, and that returns a new "Hwnd" value. If the callback returns zero or an empty
+     * string, the property "Hwnd" will not be updated and `GetWindowRect` will not be called.
+     * If the callback returns an integer, the property "Hwnd" is updated and `GetWindowRect` is
+     * called. If the callback returns another type of value, a TypeError is thrown.
+     */
+    SetCallback(Callback) {
+        if Callback {
+            this.DefineProp('Callback', { Call: Callback })
+            this.DefineProp('Call', Window32.Prototype.GetOwnPropDesc('__CallWithCallback'))
+        } else {
+            this.DeleteProp('Callback')
+            this.DefineProp('Call', Window32.Prototype.GetOwnPropDesc('Call'))
+        }
+    }
+    __CallWithCallback() {
+        if hwnd := this.Callback() {
+            if IsInteger(hwnd) {
+                this.Hwnd := hwnd
+            } else {
+                throw TypeError('Invalid ``Hwnd`` returned.', -1, Type(hwnd))
+            }
+            if !DllCall(RectBase.GetWindowInfo, 'ptr', this.Hwnd, 'ptr', this, 'int') {
+                throw OSError()
+            }
+            return hwnd
+        }
+    }
+    Activate() => WinActivate(this.Hwnd)
+    Close() => WinClose(this.Hwnd)
+    GetControls() => WinGetControls(this.Hwnd)
+    GetControlsHwnd() => WinGetControlsHwnd(this.Hwnd)
+    Hide() => WinHide(this.Hwnd)
+    Kill() => WinKill(this.Hwnd)
+    /**
+     * @description - Defines a property "Point" with a value of an instance of `Point`.
+     * @param {Integer} [Action = 1] - A value to pass to {@link Point#SetCallAction}.
+     */
+    MakePoint(Action := 1) {
+        this.DefineProp('Point', { Value: Point() })
+        this.Point.SetCallAction(Action)
+    }
+    MakeWinRectObjects() {
+        if this.Hwnd {
+            this()
+        }
+        this.Rect := WinRect(this.Hwnd, 0, this.Buffer, this.Offset + 4)
+        this.ClientRect := WinRect(this.Hwnd, 1, this.Buffer, this.Offset + 20)
+    }
+    Maximize() => WinMaximize(this.Hwnd)
+    Minimize() => WinMinimize(this.Hwnd)
+    MoveBottom() => WinMoveBottom(this.Hwnd)
+    MoveTop() => WinMoveTop(this.Hwnd)
+    Redraw() => WinRedraw(this.Hwnd)
+    Restore() => WinRestore(this.Hwnd)
+    SetAlwaysOnTop() => WinSetAlwaysOnTop(this.Hwnd)
+    SetEnabled(NewSetting) => WinSetEnabled(NewSetting, this.Hwnd)
+    SetRegion(Options?) => WinSetRegion(Options ?? unset, this.Hwnd)
+    SetStyle(Value) => WinSetStyle(Value, this.Hwnd)
+    SetExStyle(Value) => WinSetExStyle(Value, this.Hwnd)
+    SetTransparent(N) => WinSetTransparent(N, this.Hwnd)
+    WaitActive(Timeout?) => WinWaitActive(this.Hwnd, , Timeout ?? Unset)
+    WaitNotActive(Timeout?) => WinWaitNotActive(this.Hwnd, , Timeout ?? unset)
+    WaitClose(Timeout?) => WinWaitClose(this.Hwnd, , Timeout ?? unset)
+    Active {
+        Get => WinActive(this.Hwnd)
+        Set {
+            if Value {
+                WinActivate(this.Hwnd)
+            } else {
+                WinMinimize(this.Hwnd)
+            }
+        }
+    }
+    Atom => NumGet(this, 56, 'short')
+    BorderHeight => NumGet(this, 52, 'int')
+    BorderWidth => NumGet(this, 48, 'int')
+    Class => WinGetClass(this.Hwnd)
+    CreatorVersion => NumGet(this, 58, 'short')
+    Exist => WinExist(this.Hwnd)
+    ExStyle => NumGet(this, 40, 'uint')
+    Maximized => WinGetMinMax(this.Hwnd) == 1
+    Minimized => WinGetMinMax(this.Hwnd) == -1
+    PID => WinGetPid(this.Hwnd)
+    ProcessName => WinGetProcessName(this.Hwnd)
+    ProcessPath => WinGetProcessPath(this.Hwnd)
+    Status => NumGet(this, 44, 'int')
+    Style => NumGet(this, 36, 'uint')
+    Text => WinGetText(this.Hwnd)
+    Title {
+        Get => WinGetTitle(this.Hwnd)
+        Set => WinSetTitle(Value, this.Hwnd)
+    }
+    TransColor {
+        Get => WinGetTransColor(this.Hwnd)
+        Set => WinSetTransColor(Value, this.Hwnd)
+    }
+}
+
+;@endregion
+
+
+;@region WinRect cls
+
+class WinRect extends Rect {
+    static __New() {
+        this.DeleteProp('__New')
+        this.Make(this)
+    }
+    static Make(Cls, Prefix := '', Suffix := '') {
+        Proto := Cls.Prototype
+        if !HasMethod(Cls, '__Call') {
+            Cls.DefineProp('__Call', { Call: RectSetThreadDpiAwareness__Call })
+        }
+        if !HasMethod(Proto, '__Call') {
+            Proto.DefineProp('__Call', { Call: RectSetThreadDpiAwareness__Call })
+        }
+        Proto.DefineProp(Prefix 'Apply' Suffix, { Call: WinRectApply })
+        Proto.DefineProp(Prefix 'Dispose' Suffix, { Call: RectDispose })
+        Proto.DefineProp(Prefix 'GetPos' Suffix, { Call: WinRectGetPos })
+        Proto.DefineProp(Prefix 'MapPoints' Suffix, { Call: WinRectMapPoints })
+        Proto.DefineProp(Prefix 'Move' Suffix, { Call: WinRectMove })
+        Proto.DefineProp(Prefix 'Update' Suffix, { Call: WinRectUpdate })
+        Proto.DefineProp('Ptr', { Get: RectGetPtrFromBuffer })
+        Proto.DefineProp('Size', { Get: RectGetSizeFromBuffer })
+    }
+    /**
+     * @param {Integer} [Hwnd = 0] - The window handle.
+     * @param {Integer} [Flag = 0] - A flag that determines what function is called when the
+     * buffer's values are updated using `WinRectGetPos` or `WinRectUpdate`.
+     * - 0 : `GetWindowRect`
+     * - 1 : `GetClientRect`
+     * - 2 : `DwmGetWindowAttribute` passing DWMWA_EXTENDED_FRAME_BOUNDS to dwAttribute.
+     *
+     * Some controls / windows will cause `DwmGetWindowAttribute` to throw an error.
+     *
+     * For more information see {@link https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowrect}.
+     */
+    __New(Hwnd := 0, Flag := 0, Buf?, Offset := 0) {
+        this.Hwnd := Hwnd
+        if IsSet(Buf) {
+            if Buf.Size < 16 + Offset {
+                throw Error('The buffer`'s size is insufficient. The size must be 16 + offset or greater.', -1)
+            }
+            this.Buffer := Buf
+        } else {
+            this.Buffer := Buffer(16 + Offset)
+        }
+        this.Offset := Offset
+        this.Flag := Flag
+        if Hwnd {
+            this()
+        }
+    }
+    Call(*) {
+        switch this.Flag, 0 {
+            case 0:
+                DllCall(RectBase.GetWindowRect, 'ptr', this.Hwnd, 'ptr', this, 'int')
+            case 1:
+                DllCall(RectBase.GetClientRect, 'ptr', this.Hwnd, 'ptr', this, 'int')
+            case 2:
+                if HRESULT := DllCall(RectBase.Dwmapi_DwmGetWindowAttribute, 'ptr', this.Hwnd, 'uint', 9, 'ptr', this.Buffer.Ptr, 'uint', 16, 'uint') {
+                    throw oserror('``DwmGetWindowAttribute`` failed.', -1, 'HRESULT: ' Format('{:X}', HRESULT))
+                }
+        }
+    }
+}
+
+;@endregion
+
+
+;@region Rect cls
+
+class Rect extends RectBase {
+    static FromDimensions(X, Y, W, H, Buf?, Offset := 0) => this(X, Y, X + W, Y + H, Buf ?? unset, Offset)
+    static FromCursor() {
+        rc := this()
+        DllCall(RectBase.GetCursorPos, 'ptr', rc, 'int')
+        rc.R := rc.L
+        rc.B := rc.T
+        return rc
+    }
+    __New(L := 0, T := 0, R := 0, B := 0, Buf?, Offset := 0) {
+        if IsSet(Buf) {
+            if Buf.Size < 16 + Offset {
+                throw Error('The buffer`'s size is insufficient. The size must be 16 + offset or greater.', -1)
+            }
+            this.Buffer := Buf
+        } else {
+            this.Buffer := Buffer(16 + Offset)
+        }
+        this.Offset := Offset
+        NumPut('int', L, 'int', T, 'int', R, 'int', B, this.Buffer, Offset)
+    }
+}
+
+;@endregion
+
+
+;@region RectBase
+
+class RectBase {
+    static __New() {
+        this.DeleteProp('__New')
+        this.Modules := Map()
+        this.Addresses := Map()
+        this.Modules.CaseSense := this.Addresses.CaseSense := false
+        this.ResidentModules := [ 'User32', 'Kernel32', 'ComCtl32', 'Gdi32' ]
+        for dllName in this.ResidentModules {
+            this.Modules.Set(dllName, DllCall('GetModuleHandle', 'str', dllName, 'ptr'))
+        }
+        this.Make(this)
+    }
+    static __Get(Name, Params) {
+        if this.Addresses.Has(Name) {
+            return this.Addresses.Get(Name)
+        }
+        if InStr(Name, '_') {
+            modName := StrReplace(SubStr(Name, 1, InStr(Name, '_', , , -1) - 1), '_', '\')
+            if this.Modules.Has(modName) {
+                hModule := this.Modules.Get(modName)
+            } else {
+                hModule := DllCall('LoadLibrary', 'str', SubStr(Name, 1, InStr(Name, '_', , , -1) - 1) '.dll', 'ptr')
+                if hModule {
+                    this.Modules.Set(modName, hModule)
+                } else {
+                    throw Error('Unable to locate module.', -1, modName)
+                }
+            }
+            _name := SubStr(Name, InStr(Name, '_', , , -1) + 1)
+            for modName, hModule in this.Modules {
+                if address := DllCall('GetProcAddress', 'ptr', hModule, 'Astr', _name, 'ptr') {
+                    this.Addresses.Set(Name, address)
+                    return address
+                }
+            }
+            for dllName in this.ResidentModules {
+                if address := DllCall('GetProcAddress', 'ptr', this.Modules.Get(dllName), 'Astr', _name, 'ptr') {
+                    this.Addresses.Set(Name, address)
+                    return address
+                }
+            }
+            throw Error('Unable to locate the function.', -1, Name)
+        } else {
+            for dllName in this.ResidentModules {
+                if address := DllCall('GetProcAddress', 'ptr', this.Modules.Get(dllName), 'Astr', Name, 'ptr') {
+                    this.Addresses.Set(Name, address)
+                    return address
+                }
+            }
+            return Name
+        }
+    }
+    static UnloadAll(*) {
+        for modName, hModule in this.Modules {
+            DllCall('FreeLibrary', 'ptr', hModule)
+        }
+        this.Modules.Clear()
+        this.Addresses.Clear()
+    }
+    static Make(Cls, Prefix := '', Suffix := '') {
+        Proto := Cls.Prototype
+        if !HasMethod(Cls, '__Call') {
+            Cls.DefineProp('__Call', { Call: RectSetThreadDpiAwareness__Call })
+        }
+        if !HasMethod(Proto, '__Call') {
+            Proto.DefineProp('__Call', { Call: RectSetThreadDpiAwareness__Call })
+        }
+        Proto.DefineProp(Prefix 'B' Suffix, { Get: RectGetCoordinate.Bind(12), Set: RectSetCoordinate.Bind(12) })
+        Proto.DefineProp(Prefix 'BL' Suffix, { Get: RectGetPoint.Bind(0, 12) })
+        Proto.DefineProp(Prefix 'BR' Suffix, { Get: RectGetPoint.Bind(8, 12) })
+        Proto.DefineProp(Prefix 'Clone' Suffix, { Call: RectClone })
+        Proto.DefineProp(Prefix 'Dispose' Suffix, { Call: RectDispose })
+        Proto.DefineProp(Prefix 'Dpi' Suffix, { Get: RectGetDpi })
+        Proto.DefineProp(Prefix 'Equal' Suffix, { Call: RectEqual })
+        Proto.DefineProp(Prefix 'GetHeightSegment' Suffix, { Call: RectGetHeightSegment })
+        Proto.DefineProp(Prefix 'GetWidthSegment' Suffix, { Call: RectGetWidthSegment })
+        Proto.DefineProp(Prefix 'H' Suffix, { Get: RectGetLength.Bind(4), Set: RectSetLength.Bind(4) })
+        Proto.DefineProp(Prefix 'Inflate' Suffix, { Call: RectInflate })
+        Proto.DefineProp(Prefix 'Intersect' Suffix, { Call: RectIntersect })
+        Proto.DefineProp(Prefix 'IsEmpty' Suffix, { Call: RectIsEmpty })
+        Proto.DefineProp(Prefix 'L' Suffix, { Get: RectGetCoordinate.Bind(0), Set: RectSetCoordinate.Bind(0) })
+        Proto.DefineProp(Prefix 'MidX' Suffix, { Get: (Self) => RectGetWidthSegment(Self, 2) })
+        Proto.DefineProp(Prefix 'MidY' Suffix, { Get: (Self) => RectGetHeightSegment(Self, 2) })
+        Proto.DefineProp(Prefix 'Monitor' Suffix, { Get: RectGetMonitor })
+        Proto.DefineProp(Prefix 'MoveAdjacent' Suffix, { Call: RectMoveAdjacent })
+        Proto.DefineProp(Prefix 'OffsetRect' Suffix, { Call: RectOffset })
+        Proto.DefineProp(Prefix 'PtIn' Suffix, { Call: RectPtIn })
+        Proto.DefineProp(Prefix 'R' Suffix, { Get: RectGetCoordinate.Bind(8), Set: RectSetCoordinate.Bind(8) })
+        Proto.DefineProp(Prefix 'Set' Suffix, { Call: RectSet })
+        Proto.DefineProp(Prefix 'Subtract' Suffix, { Call: RectSubtract })
+        Proto.DefineProp(Prefix 'T' Suffix, { Get: RectGetCoordinate.Bind(4), Set: RectSetCoordinate.Bind(4) })
+        Proto.DefineProp(Prefix 'TL' Suffix, { Get: RectGetPoint.Bind(0, 4) })
+        Proto.DefineProp(Prefix 'ToClient' Suffix, { Call: RectToClient })
+        Proto.DefineProp(Prefix 'ToScreen' Suffix, { Call: RectToScreen })
+        Proto.DefineProp(Prefix 'ToString' Suffix, { Call: RectToString })
+        Proto.DefineProp(Prefix 'ToStringDeconstructed' Suffix, { Call: RectToStringDeconstructed })
+        Proto.DefineProp(Prefix 'TR' Suffix, { Get: RectGetPoint.Bind(8, 4) })
+        Proto.DefineProp(Prefix 'Union' Suffix, { Call: RectUnion })
+        Proto.DefineProp(Prefix 'Union' Suffix, { Call: RectUnion })
+        Proto.DefineProp(Prefix 'W' Suffix, { Get: RectGetLength.Bind(0), Set: RectSetLength.Bind(0) })
+        Proto.DefineProp('Ptr', { Get: RectGetPtrFromBuffer })
+        Proto.DefineProp('Size', { Get: RectGetSizeFromBuffer })
+    }
+}
+
+;@endregion
+
+
+;@region Point cls
+
+class Point {
+    static __New() {
+        this.DeleteProp('__New')
+        this.Make(this)
+    }
+    static FromCaret() {
+        pt := Point()
+        DllCall(RectBase.GetCaretPos, 'ptr', pt, 'int')
+        return pt
+    }
+    static FromCursor() {
+        pt := Point()
+        DllCall(RectBase.GetCursorPos, 'ptr', pt, 'int')
+        return pt
+    }
+    static Make(Cls, Prefix := '', Suffix := '') {
+        Proto := Cls.Prototype
+        if !HasMethod(Cls, '__Call') {
+            Cls.DefineProp('__Call', { Call: RectSetThreadDpiAwareness__Call })
+        }
+        if !HasMethod(Proto, '__Call') {
+            Proto.DefineProp('__Call', { Call: RectSetThreadDpiAwareness__Call })
+        }
+        Proto.DefineProp(Prefix 'Clone' Suffix, { Call: PtClone })
+        Proto.DefineProp(Prefix 'CursorPosToString' Suffix, { Call: PtCursorPosToString })
+        Proto.DefineProp(Prefix 'Dispose' Suffix, { Call: RectDispose })
+        Proto.DefineProp(Prefix 'Dpi' Suffix, { Get: PtGetDpi })
+        Proto.DefineProp(Prefix 'GetCursorPos' Suffix, { Call: PtGetCursorPos })
+        Proto.DefineProp(Prefix 'LogicalToPhysical' Suffix, { Call: PtLogicalToPhysical })
+        Proto.DefineProp(Prefix 'LogicalToPhysicalForPerMonitorDPI' Suffix, { Call: PtLogicalToPhysicalForPerMonitorDPI })
+        Proto.DefineProp(Prefix 'Monitor' Suffix, { Get: PtGetMonitor })
+        Proto.DefineProp(Prefix 'PhysicalToLogical' Suffix, { Call: PtPhysicalToLogical })
+        Proto.DefineProp(Prefix 'PhysicalToLogicalForPerMonitorDPI' Suffix, { Call: PtPhysicalToLogicalForPerMonitorDPI })
+        Proto.DefineProp(Prefix 'SetCaretPos' Suffix, { Call: PtSetCaretPos })
+        Proto.DefineProp(Prefix 'ToClient' Suffix, { Call: PtToClient })
+        Proto.DefineProp(Prefix 'ToScreen' Suffix, { Call: PtToScreen })
+        Proto.DefineProp(Prefix 'Value' Suffix, { Get: PtGetValue })
+        Proto.DefineProp(Prefix 'X' Suffix, { Get: RectGetCoordinate.Bind(0), Set: RectSetCoordinate.Bind(0) })
+        Proto.DefineProp(Prefix 'Y' Suffix, { Get: RectGetCoordinate.Bind(4), Set: RectSetCoordinate.Bind(4) })
+        Proto.DefineProp('Ptr', { Get: RectGetPtrFromBuffer })
+        Proto.DefineProp('Size', { Get: RectGetSizeFromBuffer })
+    }
+    __New(X := 0, Y := 0, Buf?, Offset := 0) {
+        if IsSet(Buf) {
+            if Buf.Size < 8 + Offset {
+                throw Error('The buffer`'s size is insufficient. The size must be 8 + offset or greater.', -1)
+            }
+            this.Buffer := Buf
+        } else {
+            this.Buffer := Buffer(8 + Offset)
+        }
+        this.Offset := Offset
+        NumPut('int', X, 'int', Y, this.Buffer, Offset)
+    }
+    Call(*) {
+        if !DllCall(RectBase.GetCursorPos, 'ptr', this, 'int') {
+            throw OSError()
+        }
+    }
+    Click(Options := '') => Click(this.X ' ' this.Y ' ' Options)
+    ClickDrag(WhichButton, X?, Y?, Speed?, Relative?) => MouseClickDrag(WhichButton, this.X, this.Y, X ?? this.X, Y ?? this.Y, Speed ?? unset, Relative ?? Unset)
+    MouseMove(Speed?, Relative?) => MouseMove(this.X, this.Y, Speed ?? Unset, Relative ?? unset)
+    GetPixelColor(Mode?) {
+        if IsSet(Mode) {
+            return PixelGetColor(this.X, this.Y, Mode)
+        } else {
+            Modes := [ '', 'Alt', 'Slow' ]
+            loop {
+                if color := PixelGetColor(this.X, this.Y, Modes[A_Index]) || A_Index >= 3 {
+                    return color
+                }
+            }
+        }
+    }
+    /**
+     * @param {Integer} Id -
+     * - 1 : The default, which updates the object's X and Y values to the cursor's current position.
+     * - 2 : Updates the object's X and Y values to the cursor's current position, and calls
+     * `WindowFromPoint`, returning the window handle if one is obtained, else returning `0`.
+     * - 3 : Updates the object's X and Y values to the cursor's current position, and calls
+     * `PixelGetColor`. Note that the X and Y values will always be relative to the screen, and that
+     * the default mode for `PixelGetColor` is "Client". Your code must set `CoordMode("Pixel", "Screen")`
+     * for this to return the expected result.
+     */
+    SetCallAction(Id := 1) {
+        switch Id, 0 {
+            case 1: this.DefineProp('Call', Point.Prototype.GetOwnPropDesc('Call'))
+            case 2: this.DefineProp('Call', Point.Prototype.GetOwnPropDesc('__CallGetWindowUnderCursor'))
+            case 3: this.DefineProp('Call', Point.Prototype.GetOwnPropDesc('__CallGetPixelUnderCursor'))
+        }
+    }
+    /**
+     * @description - `Point.Prototype.SetCallback` changes the method "Call" to do the following:
+     * 1. Update's the `Point` object's X and Y values to the cursor's current position relative to
+     *    the screen.
+     * 2. Calls the callback function, passing the `Point` object to the function.
+     * 3. Returns the value from the callback.
+     *
+     * To disable the callback and return "Call" to the built-in default, pass zero or an empty
+     * string to `Callback`.
+     */
+    SetCallback(Callback) {
+        if Callback {
+            this.DefineProp('Callback', { Call: Callback })
+            this.DefineProp('Call', Point.Prototype.GetOwnPropDesc('__CallWithCallback'))
+        } else {
+            this.DeleteProp('Callback')
+            this.DefineProp('Call', Point.Prototype.GetOwnPropDesc('Call'))
+        }
+    }
+    __CallGetWindowUnderCursor(*) {
+        if !DllCall(RectBase.GetCursorPos, 'ptr', this, 'int') {
+            throw OSError()
+        }
+        return DllCall(RectBase.WindowFromPoint, 'int', this.Value, 'ptr')
+    }
+    __CallGetPixelUnderCursor(*) {
+        if !DllCall(RectBase.GetCursorPos, 'ptr', this, 'int') {
+            throw OSError()
+        }
+        return PixelGetColor(this.X, this.Y)
+    }
+    __CallWithCallback() {
+        if !DllCall(RectBase.GetCursorPos, 'ptr', this, 'int') {
+            throw OSError()
+        }
+        return this.Callback()
+    }
+    PixelColor => this.GetPixelColor()
+}
+
+;@endregion
+
+
+;@region Point funcs
+
+PtClone(pt) => Point(pt.X, pt.Y)
+PtCursorPosToString(Pt) {
+    DllCall(RectBase.GetCursorPos, 'ptr', pt, 'int')
+    return '( ' Pt.X ', ' Pt.Y ' )'
+}
+PtGetCursorPos(pt) => DllCall(RectBase.GetCursorPos, 'ptr', pt, 'int')
+PtGetDpi(pt) {
+    if DllCall(RectBase.Shcore_GetDpiForMonitor, 'ptr'
+        , DllCall(RectBase.MonitorFromPoint, 'int', pt.Value, 'uint', 0, 'ptr')
+    , 'uint', 0, 'uint*', &DpiX := 0, 'uint*', &DpiY := 0, 'int') {
+        throw OSError('MonitorFomPoint received an invalid parameter.', -1)
+    } else {
+        return DpiX
+    }
+}
+PtGetMonitor(pt) {
+    return DllCall(RectBase.MonitorFromPoint, 'int', pt.Value, 'uint', 0, 'ptr')
+}
+PtGetValue(Pt) => (pt.X & 0xFFFFFFFF) | (pt.Y << 32)
+PtLogicalToPhysical(pt, Hwnd) {
+    DllCall(RectBase.LogicalToPhysical, 'ptr', Hwnd, 'ptr', pt)
+}
+PtLogicalToPhysicalForPerMonitorDPI(pt, Hwnd) {
+    return DllCall(RectBase.LogicalToPhysicalPointForPerMonitorDPI, 'ptr', Hwnd, 'ptr', pt, 'int')
+}
+PtPhysicalToLogical(pt, Hwnd) {
+    DllCall(RectBase.PhysicalToLogical, 'ptr', Hwnd, 'ptr', pt)
+}
+PtPhysicalToLogicalForPerMonitorDPI(pt, Hwnd) {
+    return DllCall(RectBase.PhysicalToLogicalPointForPerMonitorDPI, 'ptr', Hwnd, 'ptr', pt, 'int')
+}
+PtSetCaretPos(pt) {
+    return DllCall(RectBase.SetCaretPos, 'int', pt.X, 'int', pt.Y, 'int')
+}
+/**
+ * @description - Use this to convert screen coordinates (which should already be contained by
+ * this `Point` object), to client coordinates.
+ * {@link https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-screentoclient}
+ * @param {Point} pt - The point.
+ * @param {Integer} Hwnd - The handle to the window whose client area will be used for the conversion.
+ * @param {Boolean} [InPlace = false] - If true, the function modifies the object's properties.
+ * If false, the function creates a new object.
+ * @returns {Point}
+ */
+PtToClient(pt, Hwnd, InPlace := false) {
+    if !InPlace {
+        pt := Point(pt.X, pt.Y)
+    }
+    if !DllCall(RectBase.ScreenToClient, 'ptr', Hwnd, 'ptr', pt, 'int') {
+        throw OSError()
+    }
+    return pt
+}
+/**
+ * @description - Use this to convert client coordinates (which should already be contained by
+ * this `Point` object), to screen coordinates.
+ * {@link https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-clienttoscreen}
+ * @param {Point} pt - The point.
+ * @param {Integer} Hwnd - The handle to the window whose client area will be used for the conversion.
+ * @param {Boolean} [InPlace = false] - If true, the function modifies the object's properties.
+ * If false, the function creates a new object.
+ * @returns {Point}
+ */
+PtToScreen(Pt, Hwnd, InPlace := false) {
+    if !InPlace {
+        pt := Point(pt.X, pt.Y)
+    }
+    if !DllCall(RectBase.ClientToScreen, 'ptr', Hwnd, 'ptr', pt, 'int') {
+        throw OSError()
+    }
+    return pt
+}
+PtToString(Pt) {
+    return '( ' Pt.X ', ' Pt.Y ' )'
+}
+
+;@endregion
+
+
+;@region Rect funcs
+
+RectClone(rc) => Rect(rc.L, rc.T, rc.R, rc.B)
+RectEqual(rc1, rc2) => DllCall(RectBase.EqualRect, 'ptr', rc1, 'ptr', rc2, 'int')
+RectGetCoordinate(Offset, rc) => NumGet(rc, Offset, 'int')
+RectGetDpi(rc) {
+    if DllCall(RectBase.Shcore_GetDpiForMonitor, 'ptr'
+        , DllCall(RectBase.Shcore_MonitorFromRect, 'ptr', rc, 'uint', 0, 'ptr')
+    , 'uint', 0, 'uint*', &DpiX := 0, 'uint*', &DpiY := 0, 'int') {
+        throw OSError('``MonitorFomPoint`` received an invalid parameter.', -1)
+    } else {
+        return DpiX
+    }
+}
+RectGetHeightSegment(rc, Divisor, DecimalPlaces := 0) => Round(rc.H / Divisor, DecimalPlaces)
+RectGetLength(Offset, rc) => NumGet(rc, 8 + Offset, 'int') - NumGet(rc, Offset, 'int')
+RectGetMonitor(rc) => DllCall(RectBase.MonitorFromRect, 'ptr', rc, 'UInt', 0, 'Uptr')
+RectGetPoint(Offset1, Offset2, rc) => Point(NumGet(rc, Offset1, 'int'), NumGet(rc, Offset2, 'int'))
+RectGetPtrFromBuffer(rc) => rc.Buffer.Ptr + rc.Offset
+RectGetSizeFromBuffer(rc) => rc.Buffer.Size
+RectGetWidthSegment(rc, Divisor, DecimalPlaces := 0) => Round(rc.W / Divisor, DecimalPlaces)
+RectInflate(rc, dx, dy) => DllCall(RectBase.InflateRect, 'ptr', rc, 'int', dx, 'int', dy, 'int')
+/**
+ * @returns {Rect} - If the rectangles intersect, a new `Rect` object is returned. If the rectangles
+ * do not intersect, returns an empty string.
+ */
+RectIntersect(rc1, rc2, Offset := 0) {
+    rc := Rect()
+    if DllCall(RectBase.IntersectRect, 'ptr', rc, 'ptr', rc1, 'ptr', rc2, 'int') {
+        return rc
+    }
+}
+RectIsEmpty(rc) => DllCall(RectBase.IsRectEmpty, 'ptr', rc, 'int')
+RectDispose(Obj) {
+    if Obj.HasOwnProp('Ptr') {
+        ObjRelease(Obj.Ptr)
+        Obj.DeleteProp('Ptr')
+    }
+    if Obj.HasOwnProp('Buffer') {
+        Obj.DeleteProp('Buffer')
+    }
+    Obj.DefineProp('Size', { Value: 0 })
+    Obj.DefineProp('Ptr', { Value: 0 })
+}
+/**
+ * @description - Calculates the optimal position to move one rectangle adjacent to another while
+ * ensuring that the `Subject` rectangle stays within the monitor's work area. The properties
+ * { L, T, R, B } of `Subject` are updated with the new values.
+ *
+ * @example
+ * ; Assume I have Edge and VLC open
+ * rcSub := WinRect(WinGetId("ahk_exe msedge.exe"))
+ * rcTar := WinRect(WinGetId("ahk_exe vlc.exe"))
+ * rcSub.MoveAdjacent(rcTar)
+ * rcSub.Apply()
+ * @
+ *
+ * @param {*} Subject - The object representing the rectangle that will be moved. This can be an
+ * instance of `Rect` or any class that inherits from `Rect`, or any object with properties
+ * { L, T, R, B }. Those four property values will be updated with the result of this function call.
+ *
+ * @param {*} [Target] - The object representing the rectangle that will be used as reference. This
+ * can be an instance of `Rect` or any class that inherits from `Rect`, or any object with properties
+ * { L, T, R, B }. If unset, the mouse's current position relative to the screen is used. To use
+ * a point instead of a rectangle, set the properties "L" and "R" equivalent to one another, and
+ * "T" and "B" equivalent to one another.
+ *
+ * @param {*} [ContainerRect] - If set, `ContainerRect` defines the boundaries which restrict
+ * the area that the window is permitted to be moved within. The object must have poperties
+ * { L, T, R, B } to be valid. If unset, the work area of the monitor with the greatest area of
+ * intersection with `Target` is used.
+ *
+ * @param {String} [Dimension = "X"] - Either "X" or "Y", specifying if the window is to be moved
+ * adjacent to `Target` on either the X or Y axis. If "X", `Subject` is moved to the left or right
+ * of `Target`, and `Subject`'s vertical center is aligned with `Target`'s vertical center. If "Y",
+ * `Subject` is moved to the top or bottom of `Target`, and `Subject`'s horizontal center is aligned
+ * with `Target`'s horizontal center.
+ *
+ * @param {String} [Prefer = ""] - A character indicating a preferred side. If `Prefer` is an
+ * empty string, the function will move the window to the side the has the greatest amount of
+ * space between the monitor's border and `Target`. If `Prefer` is any of the following values,
+ * the window will be moved to that side unless doing so would cause the the window to extend
+ * outside of the monitor's work area.
+ * - "L" - Prefers the left side.
+ * - "T" - Prefers the top side.
+ * - "R" - Prefers the right side.
+ * - "B" - Prefes the bottom.
+ *
+ * @param {Number} [Padding = 0] - The amount of padding to leave between `Subject` and `Target`.
+ *
+ * @param {Integer} [InsufficientSpaceAction = 0] - Determines the action taken if there is
+ * insufficient space to move the window adjacent to `Target` while also keeping the window
+ * entirely within the monitor's work area. The function will always sacrifice some of the padding
+ * if it will allow the window to stay within the monitor's work area. If the space is still
+ * insufficient, the action can be one of the following:
+ * - 0 : The function will not move the window.
+ * - 1 : The function will move the window, allowing the window's area to extend into a non-visible
+ *   region of the monitor.
+ * - 2 : The function will move the window, keeping the window's area within the monitor's work
+ *   area by allowing the window to overlap with `Target`.
+ *
+ * @returns {Integer} - If the insufficient space action was invoked, returns 1. Else, returns 0.
+ */
+RectMoveAdjacent(Subject, Target?, ContainerRect?, Dimension := 'X', Prefer := '', Padding := 0, InsufficientSpaceAction := 0) {
+    Result := 0
+    if IsSet(Target) {
+        tarL := Target.L
+        tarT := Target.T
+        tarR := Target.R
+        tarB := Target.B
+    } else {
+        mode := CoordMode('Mouse', 'Screen')
+        MouseGetPos(&tarL, &tarT)
+        tarR := tarL
+        tarB := tarT
+        CoordMode('Mouse', mode)
+    }
+    tarW := tarR - tarL
+    tarH := tarB - tarT
+    if IsSet(ContainerRect) {
+        monL := ContainerRect.L
+        monT := ContainerRect.T
+        monR := ContainerRect.R
+        monB := ContainerRect.B
+        monW := monR - monL
+        monH := monB - monT
+    } else {
+        buf := Buffer(16)
+        NumPut('int', tarL, 'int', tarT, 'int', tarR, 'int', tarB, buf)
+        Hmon := DllCall('MonitorFromRect', 'ptr', buf, 'uint', 0x00000002, 'ptr')
+        mon := Buffer(40)
+        NumPut('int', 40, mon)
+        if !DllCall('GetMonitorInfo', 'ptr', Hmon, 'ptr', mon, 'int') {
+            throw OSError()
+        }
+        monL := NumGet(mon, 20, 'int')
+        monT := NumGet(mon, 24, 'int')
+        monR := NumGet(mon, 28, 'int')
+        monB := NumGet(mon, 32, 'int')
+        monW := monR - monL
+        monH := monB - monT
+    }
+    subL := Subject.L
+    subT := Subject.T
+    subR := Subject.R
+    subB := Subject.B
+    subW := subR - subL
+    subH := subB - subT
+    if Dimension = 'X' {
+        if Prefer = 'L' {
+            if tarL - subW - Padding >= monL {
+                X := tarL - subW - Padding
+            } else if tarL - subW >= monL {
+                X := monL
+            }
+        } else if Prefer = 'R' {
+            if tarR + subW + Padding <= monR {
+                X := tarR + Padding
+            } else if tarR + subW <= monR {
+                X := monR - subW
+            }
+        } else if Prefer {
+            throw _ValueError('Prefer', Prefer)
+        }
+        if !IsSet(X) {
+            flag_nomove := false
+            X := _Proc(subW, subL, subR, tarW, tarL, tarR, monW, monL, monR, Prefer = 'L' ? 1 : Prefer = 'R' ? -1 : 0)
+            if flag_nomove {
+                return Result
+            }
+        }
+        Y := tarT + tarH / 2 - subH / 2
+        if Y + subH > monB {
+            Y := monB - subH
+        } else if Y < monT {
+            Y := monT
+        }
+    } else if Dimension = 'Y' {
+        if Prefer = 'T' {
+            if tarT - subH - Padding >= monT {
+                Y := tarT - subH - Padding
+            } else if tarT - subH >= monT {
+                Y := monT
+            }
+        } else if Prefer = 'B' {
+            if tarB + subH + Padding <= monB {
+                Y := tarB + Padding
+            } else if tarB + subH <= monB {
+                Y := monB - subH
+            }
+        } else if Prefer {
+            throw _ValueError('Prefer', Prefer)
+        }
+        if !IsSet(Y) {
+            flag_nomove := false
+            Y := _Proc(subH, subT, subB, tarH, tarT, tarB, monH, monT, monB, Prefer = 'T' ? 1 : Prefer = 'B' ? -1 : 0)
+            if flag_nomove {
+                return Result
+            }
+        }
+        X := tarL + tarW / 2 - subW / 2
+        if X + subW > monR {
+            X := monR - subW
+        } else if X < monL {
+            X := monL
+        }
+    } else {
+        throw _ValueError('Dimension', Dimension)
+    }
+    Subject.L := X
+    Subject.T := Y
+    Subject.R := X + subW
+    Subject.B := Y + subH
+
+    return Result
+
+    _Proc(SubLen, SubMainSide, SubAltSide, TarLen, TarMainSide, TarAltSide, MonLen, MonMainSide, MonAltSide, Prefer) {
+        if TarMainSide - MonMainSide > MonAltSide - TarAltSide {
+            if TarMainSide - SubLen - Padding >= MonMainSide {
+                return TarMainSide - SubLen - Padding
+            } else if TarMainSide - SubLen >= MonMainSide {
+                return MonMainSide + TarMainSide - SubLen
+            } else {
+                Result := 1
+                switch InsufficientSpaceAction, 0 {
+                    case 0: flag_nomove := true
+                    case 1: return TarMainSide - SubLen
+                    case 2: return MonMainSide
+                    default: throw _ValueError('InsufficientSpaceAction', InsufficientSpaceAction)
+                }
+            }
+        } else if TarAltSide + SubLen + Padding <= MonAltSide {
+            return TarAltSide + Padding
+        } else if TarAltSide + SubLen <= MonAltSide {
+            return MonAltSide - TarAltSide + SubLen
+        } else {
+            Result := 1
+            switch InsufficientSpaceAction, 0 {
+                case 0: flag_nomove := true
+                case 1: return TarAltSide
+                case 2: return MonAltSide - SubLen
+                default: throw _ValueError('InsufficientSpaceAction', InsufficientSpaceAction)
+            }
+        }
+    }
+    _ValueError(name, Value) {
+        if IsObject(Value) {
+            return TypeError('Invalid type passed to ``' name '``.', -2)
+        } else {
+            return ValueError('Unexpected value passed to ``' name '``.', -2, Value)
+        }
+    }
+}
+RectOffset(rc, dx, dy) => DllCall(RectBase.OffsetRect, 'ptr', rc, 'int', dx, 'int', dy, 'int')
+RectPtIn(rc, pt) => DllCall(RectBase.PtInRect, 'ptr', rc, 'ptr', pt, 'int')
+RectSet(rc, X?, Y?, W?, H?) {
+    if IsSet(X) {
+        rc.L := X
+    }
+    if IsSet(Y) {
+        rc.T := Y
+    }
+    if IsSet(W) {
+        rc.R := rc.L + W
+    }
+    if IsSet(H) {
+        rc.B := rc.T + H
+    }
+}
+RectSetCoordinate(Offset, rc, Value) => NumPut('int', Value, rc.Ptr, Offset)
+RectSetLength(Offset, rc, Value) => NumPut('int', NumGet(rc, Offset, 'int') + Value, rc, 8 + Offset)
+RectSetThreadDpiAwareness__Call(Obj, Name, Params) {
+    Split := StrSplit(Name, '_')
+    if Obj.HasMethod(Split[1]) && Split[2] = 'S' {
+        DllCall(RectBase.SetThreadDpiAwarenessContext, 'ptr', HasProp(Obj, 'DpiAwarenessContext') ? Obj.DpiAwarenessContext : DPI_AWARENESS_CONTEXT_DEFAULT ?? -4, 'ptr')
+        if Params.Length {
+            return Obj.%Split[1]%(Params*)
+        } else {
+            return Obj.%Split[1]%()
+        }
+    } else {
+        throw PropertyError('Property not found.', -1, Name)
+    }
+}
+RectSubtract(rc1, rc2) {
+    rc := Rect()
+    DllCall(RectBase.SubtractRect, 'ptr', rc, 'ptr', rc1, 'ptr', rc2, 'int')
+    return rc
+}
+/**
+ * Calls `ScreenToClient` for the the rectangle.
+ * @param {Integer} Hwnd - The handle to the window to which the rectangle's dimensions
+ * will be made relative.
+ * @param {Boolean} [InPlace = false] - If true, the function modifies the object's properties.
+ * If false, the function creates a new object.
+ * @returns {Rect}
+ */
+RectToClient(rc, Hwnd, InPlace := false) {
+    if !InPlace {
+        rc := rc.Clone()
+    }
+    if !DllCall(RectBase.ScreenToClient, 'ptr', Hwnd, 'ptr', rc, 'int') {
+        throw OSError()
+    }
+    if !DllCall(RectBase.ScreenToClient, 'ptr', Hwnd, 'ptr', rc.Ptr + 8, 'int') {
+        throw OSError()
+    }
+    return rc
+}
+/**
+ * Calls `ClientToScreen` for the the rectangle.
+ * @param {Integer} Hwnd - The handle to the window to which the rectangle's dimensions
+ * are currently relative.
+ * @param {Boolean} [InPlace = false] - If true, the function modifies the object's properties.
+ * If false, the function creates a new object.
+ * @returns {Rect}
+ */
+RectToScreen(rc, Hwnd, InPlace := false) {
+    if !InPlace {
+        rc := rc.Clone()
+    }
+    if !DllCall(RectBase.ClientToScreen, 'ptr', Hwnd, 'ptr', rc.ptr, 'int') {
+        throw OSError()
+    }
+    if !DllCall(RectBase.ClientToScreen, 'ptr', Hwnd, 'ptr', rc.ptr + 8, 'int') {
+        throw OSError()
+    }
+    return rc
+}
+RectToString(rc, DimensionLen := '-6') {
+    return (
+        'TL: ' Format('( {}, {} )', rc.L, rc.T)
+        '`r`nBR: ' Format('( {}, {} )', rc.R, rc.B)
+        '`r`nW: ' Format('{:' DimensionLen '}', rc.W) '  H: ' Format('{:' DimensionLen '}', rc.H)
+    )
+}
+RectToStringDeconstructed(rc, DimensionLen := '-6') {
+    return {
+        TL: Format('( {}, {} )', rc.L, rc.T)
+      , BR: Format('( {}, {} )', rc.R, rc.B)
+      , W: Format('{:' DimensionLen '}', rc.W)
+      , H: Format('{:' DimensionLen '}', rc.H)
+    }
+}
+/**
+ * @returns {Rect} - If the specified structure contains a nonempty rectangle, a new `Rect` is created
+ * and retured. If the specified structure does not contain a nonempty rectangle, returns an empty
+ * string.
+ */
+RectUnion(rc1, rc2) {
+    rc := Rect()
+    if DllCall(RectBase.UnionRect, 'ptr', rc, 'ptr', rc1, 'ptr', rc2, 'int') {
+        return rc
+    }
+}
+SetCaretPos(X, Y) {
+    return DllCall(RectBase.SetCaretPos, 'int', X, 'int', Y, 'int')
+}
+
+;@endregion
+
+
+;@region Window32 funcs
+
+/**
+ * @description - Input the desired client area and `AdjustWindowRectEx` will update the object
+ * on the property `Rect` to the position and size that will accommodate the client area. This
+ * does not update the window's display; call `Window32Obj.Rect.Apply()`
+ */
+Window32AdjustRectEx(win, X?, Y?, W?, H?, HasMenuBar := false) {
+    rc := win.Rect
+    if IsSet(X) {
+        rc.X := X
+    }
+    if IsSet(Y) {
+        rc.Y := Y
+    }
+    if IsSet(W) {
+        rc.R := rc.X + W
+    }
+    if IsSet(H) {
+        rc.B := rc.T + H
+    }
+    if !DllCall(RectBase.AdjustWindowRectEx, 'ptr', rc, 'uint', win.Style, 'int', HasMenuBar, 'uint', win.ExStyle, 'int') {
+        throw OSError()
+    }
+}
+
+Window32BringToTop(win) {
+    return DllCall(RectBase.BringWindowToTop, 'ptr', IsObject(win) ? win.Hwnd : win, 'int')
+}
+
+Window32CallbackFromDesktop(*) {
+    if hwnd := DllCall(RectBase.GetDesktopWindow, 'ptr') {
+        return hwnd
+    }
+}
+
+Window32CallbackFromForeground(*) {
+    return DllCall(RectBase.GetForegroundWindow, 'ptr')
+}
+
+/**
+ * @description - To use this as a callback with `Window32.Prototype.SetCallback`, you must
+ * define it as a `BoundFunc` defining the "Cmd" value.
+ * @example
+ *  hwnd := DllCall(RectBase.GetDesktopWindow, 'ptr')
+ *  win := Window32(hwnd)
+ *  win.SetCallback(Window32CallbackFromNext.Bind(3))
+ *  win()
+ * @
+ */
+Window32CallbackFromNext(Cmd, win) {
+    if hwnd := DllCall(RectBase.GetNextWindow, 'ptr', win.Hwnd, 'uint', Cmd, 'ptr') {
+        return hwnd
+    }
+}
+
+Window32CallbackFromParent(win) {
+    if hwnd := DllCall(RectBase.GetParent, 'ptr', win.Hwnd, 'ptr') {
+        return hwnd
+    }
+}
+
+Window32CallbackFromShell(*) {
+    return DllCall(RectBase.GetShellWindow, 'ptr')
+}
+
+Window32CallbackFromTop(win) {
+    return DllCall(RectBase.GetTopWindow, 'ptr', win.Hwnd, 'ptr')
+}
+
+/**
+ * @description - `Window32ChildFromCursor` returns the child window underneath the cursor. To use
+ * this function, you must first call the method "MakePoint".
+ * @example
+ *  win := Window32()
+ *  win.MakePoint(2)
+ *  ; Now we can get the child window under the cursor like this:
+ *  childHwnd := win.ChildFromCursor()
+ * @
+ *
+ * Note that calling the method "ChildFromCursor" also updates the property "Hwnd" with the handle to
+ * the window under the cursor.
+ */
+Window32ChildFromCursor(win) {
+    win.Point.Call()
+    win.Hwnd := DllCall(RectBase.WindowFromPoint, 'int', win.Point.Value, 'ptr')
+    return DllCall(RectBase.ChildWindowFromPoint, 'ptr', win.Hwnd, 'int', win.Point.Value, 'ptr')
+}
+
+/**
+ * @description - Similar to {@link Window32ChildFromCursor}, except in this case we can also pass
+ * a value to the parameter `Flag`, described here: {@link Window32ChildFromPointEx}.
+ */
+Window32ChildFromCursorEx(win, Flag := 0) {
+    win.Point.Call()
+    win.Hwnd := DllCall(RectBase.WindowFromPoint, 'int', win.Point.Value, 'ptr')
+    return DllCall(RectBase.ChildWindowFromPointEx, 'ptr', win.Hwnd, 'int', win.Point.Value, 'int', Flag, 'ptr')
+}
+
+Window32ChildFromPoint(win, X, Y) {
+    return DllCall(RectBase.ChildWindowFromPoint, 'ptr', IsObject(win) ? win.Hwnd : win, 'int', (X & 0xFFFFFFFF) | (Y << 32), 'ptr')
+}
+
+/**
+ * @param {Integer} [flag = 0] -
+ * - CWP_ALL - 0x0000 : Does not skip any child windows
+ * - CWP_SKIPDISABLED - 0x0002 : Skips disabled child windows
+ * - CWP_SKIPINVISIBLE - 0x0001 : Skips invisible child windows
+ * - CWP_SKIPTRANSPARENT - 0x0004 : Skips transparent child windows
+ */
+Window32ChildFromPointEx(win, X, Y, Flag := 0) {
+    return DllCall(RectBase.ChildWindowFromPointEx, 'ptr', IsObject(win) ? win.Hwnd : win, 'int', (X & 0xFFFFFFFF) | (Y << 32), 'int', Flag, 'ptr')
+}
+
+Window32Dispose(win) {
+    for prop in ['Rect', 'ClientRect'] {
+        if win.HasOwnProp(prop) {
+            if win.%prop%.HasMethod('Dispose') {
+                win.%prop%.Dispose()
+            }
+            win.DeleteProp(prop)
+        }
+    }
+    RectDispose(win)
+}
+
+Window32EnumChildWindows(win, Callback, lParam := 0) {
+    cb := CallbackCreate(Callback)
+    result := DllCall(RectBase.EnumChildWindows, 'ptr', IsObject(win) ? win.Hwnd : win, 'ptr', cb, 'uint', lParam, 'int')
+    CallbackFree(cb)
+    return result
+}
+
+/**
+ * @description - Gets the bounding rectangle of all child windows of a given window.
+ * @param {Integer} Hwnd - The handle to the parent window.
+ * @returns {Rect} - The bounding rectangle of all child windows, specifically the smallest
+ * rectangle that contains all child windows.
+ */
+Window32GetChildBoundingRect(win) {
+    rects := [Rect(), Rect(), Rect()]
+    DllCall(RectBase.EnumChildWindows, 'ptr', IsObject(win) ? win.Hwnd : win, 'ptr', cb := CallbackCreate(_EnumChildWindowsProc, 'fast',  1), 'int', 0, 'int')
+    CallbackFree(cb)
+    return rects[1]
+
+    _EnumChildWindowsProc(hwnd) {
+        DllCall(RectBase.GetWindowRect, 'ptr', Hwnd, 'ptr', rects[3], 'int')
+        DllCall(RectBase.UnionRect, 'ptr', rects[2], 'ptr', rects[3], 'ptr', rects[1], 'int')
+        rects.Push(rects.RemoveAt(1))
+        return 1
+    }
+}
+
+Window32GetClientRect(win) {
+    return WinRect(IsObject(win) ? win.Hwnd : win, true)
+}
+
+Window32GetDpi(win) {
+    return DllCall(RectBase.GetDpiForWindow, 'ptr', IsObject(win) ? win.Hwnd : win, 'int')
+}
+
+Window32GetExStyle(win) {
+    style := win.ExStyle
+    result := []
+    result.Capacity := Window32.WindowExStyles.Count
+    for k, v in Window32.WindowExStyles {
+        if style & v {
+            result.Push(k)
+        }
+    }
+    result.Capacity := result.Length
+    return result
+}
+
+Window32GetMonitor(win) {
+    return DllCall(RectBase.MonitorFromWindow, 'ptr', IsObject(win) ? win.Hwnd : win, 'int', 0, 'ptr')
+}
+
+Window32GetStyle(win) {
+    style := win.Style
+    result := []
+    result.Capacity := Window32.WindowStyles.Count
+    for k, v in Window32.WindowStyles {
+        if style & v {
+            result.Push(k)
+        }
+    }
+    result.Capacity := result.Length
+    return result
+}
+
+/**
+ * @param {String|Integer} Id - Either the symbol as string (e.g. "WS_EX_WINDOWEDGE") or the integer
+ * value (e.g. "0x00000100").
+ */
+Window32HasExStyle(win, Id) {
+    return win.ExStyle & (IsNumber(Id) ? Id : Window32.WindowExStyles.Get(Id))
+}
+
+/**
+ * @param {String|Integer} Id - Either the symbol as string (e.g. "WS_CAPTION") or the integer value
+ * (e.g. "0x00C00000").
+ */
+Window32HasStyle(win, Id) {
+    return win.Style & (IsNumber(Id) ? Id : Window32.WindowStyles.Get(Id))
+}
+
+Window32IsChild(win, HwndChild) {
+    return DllCall(RectBase.IsChild, 'ptr', IsObject(win) ? win.Hwnd : win, 'ptr', IsObject(HwndChild) ? HwndChild.Hwnd : HwndChild, 'int')
+}
+
+Window32IsParent(win, HwndParent) {
+    return DllCall(RectBase.IsChild, 'ptr', HwndParent, 'ptr', IsObject(win) ? win.Hwnd : win, 'int')
+}
+
+Window32IsVisible(wrc) {
+    return DllCall(RectBase.IsWindowVisible, 'ptr', IsObject(wrc) ? wrc.Hwnd : wrc, 'int')
+}
+
+/**
+ * Input the dimensions of the desired client area, and the window is moved to accommodate that
+ * area.
+ */
+Window32MoveClient(win, X := 0, Y := 0, W := 0, H := 0, InsertAfter := 0, Flags := 0) {
+    win := win.Rect
+    win.X := X
+    win.Y := Y
+    win.W := W
+    win.H := H
+    if !DllCall(RectBase.AdjustWindowRectEx, 'ptr', win, 'uint', win.Style, 'int', win.MenuBar ? 1 : 0, 'uint', win.ExStyle, 'int') {
+        throw OSError()
+    }
+    if !DllCall(RectBase.SetWindowPos, 'ptr', win.Hwnd, 'ptr', InsertAfter, 'int', X, 'int', Y, 'int', W, 'int', H, 'uint', Flags, 'int') {
+        throw OSError()
+    }
+    ; Update the AHK Rect object's property values.
+    if !DllCall(RectBase.GetWindowRect, 'ptr', win.Hwnd, 'ptr', win, 'int') {
+        throw OSError()
+    }
+}
+
+Window32RealChildFromPoint(win, X, Y) {
+    return DllCall(RectBase.RealChildWindowFromPoint, 'ptr', IsObject(win) ? win.Hwnd : win, 'int', (X & 0xFFFFFFFF) | (Y << 32), 'ptr')
+}
+
+/**
+ * @description - See {@link Window32ChildFromCursor}.
+ */
+Window32RealChildFromCursor(win) {
+    win.Point.Call()
+    win.Hwnd := DllCall(RectBase.WindowFromPoint, 'int', win.Point.Value, 'ptr')
+    return DllCall(RectBase.RealChildWindowFromPoint, 'ptr', IsObject(win) ? win.Hwnd : win, 'int', win.Point.Value, 'ptr')
+}
+
+Window32SetActive(win) {
+    return DllCall(RectBase.SetActiveWindow, 'ptr', IsObject(win) ? win.Hwnd : win, 'int')
+}
+
+Window32SetForeground(win) {
+    return DllCall(RectBase.SetForegroundWindow, 'ptr', IsObject(win) ? win.Hwnd : win, 'int')
+}
+
+Window32SetParent(win, HwndNewParent := 0) {
+    return DllCall(RectBase.SetParent, 'ptr', IsObject(win) ? win.Hwnd : win, 'ptr', IsObject(HwndNewParent) ? HwndNewParent.Hwnd : HwndNewParent, 'ptr')
+}
+
+Window32SetPosKeepAspectRatio(win, Width, Height, AspectRatio?) {
+    if !IsSet(AspectRatio) {
+        AspectRatio := win.W / win.H
+    }
+    WidthFromHeight := Height / AspectRatio
+    HeightFromWidth := Width * AspectRatio
+    if WidthFromHeight > Width {
+        win.H := HeightFromWidth
+        win.W := Width
+    } else {
+        win.W := WidthFromHeight
+        win.H := Height
+    }
+}
+
+/**
+ * @description - Shows the window.
+ * @param {Integer} [Flag = 0] - One of the following.
+ * - SW_HIDE - 0 - Hides the window and activates another window.
+ * - SW_SHOWNORMAL / SW_NORMAL - 1 - Activates and displays a window. If the window is
+ *   minimized, maximized, or arranged, the system restores it to its original size and position.
+ *   An application should specify this flag when displaying the window for the first time.
+ * - SW_SHOWMINIMIZED - 2 - Activates the window and displays it as a minimized window.
+ * - SW_SHOWMAXIMIZED / SW_MAXIMIZE - 3 - Activates the window and displays it as a maximized
+ *   window.
+ * - SW_SHOWNOACTIVATE - 4 - Displays a window in its most recent size and position. This value
+ *   is similar to SW_SHOWNORMAL, except that the window is not activated.
+ * - SW_SHOW - 5 - Activates the window and displays it in its current size and position.
+ * - SW_MINIMIZE - 6 - Minimizes the specified window and activates the next top-level window in
+ *   the Z order.
+ * - SW_SHOWMINNOACTIVE - 7 - Displays the window as a minimized window. This value is similar
+ *   to SW_SHOWMINIMIZED, except the window is not activated.
+ * - SW_SHOWNA - 8 - Displays the window in its current size and position. This value is similar
+ *   to SW_SHOW, except that the window is not activated.
+ * - SW_RESTORE - 9 - Activates and displays the window. If the window is minimized, maximized,
+ *   or arranged, the system restores it to its original size and position. An application should
+ *   specify this flag when restoring a minimized window.
+ * - SW_SHOWDEFAULT - 10 - Sets the show state based on the SW_ value specified
+ *   in the structure passed to the function by the program that started the application.
+ * - SW_FORCEMINIMIZE - 11 - Minimizes a window, even if the thread that owns the window is not
+ *   responding. This flag should only be used when minimizing windows from a different thread.
+ * @returns {Boolean} - If the window was previously visible, the return value is nonzero. If
+ * the window was previously hidden, the return value is zero.
+ */
+Window32Show(win, Flag := 0) {
+    return DllCall(RectBase.ShowWindow, 'ptr', IsObject(win) ? win.Hwnd : win, 'uint', Flag, 'int')
+}
+
+;@endregion
+
+
+;@region WinFrom funcs
+
+WinFromDesktop() {
+    return DllCall(RectBase.GetDesktopWindow, 'ptr')
+}
+
+WinFromForeground() {
+    return DllCall(RectBase.GetForegroundWindow, 'ptr')
+}
+
+WinFromCursor() {
+    pt := Point()
+    if !DllCall(RectBase.GetCursorPos, 'ptr', pt, 'int') {
+        throw OSError()
+    }
+    return DllCall(RectBase.WindowFromPoint, 'int', pt.Value, 'ptr')
+}
+
+WinFromParent(Hwnd) {
+    return DllCall(RectBase.GetParent, 'ptr', IsObject(Hwnd) ? Hwnd.Hwnd : Hwnd, 'ptr')
+}
+
+WinFromPoint(X, Y) {
+    return DllCall(RectBase.WindowFromPoint, 'int', (X & 0xFFFFFFFF) | (Y << 32), 'ptr')
+}
+
+WinFromShell() {
+    return DllCall(RectBase.GetShellWindow, 'ptr')
+}
+
+WinFromTop(Hwnd := 0) {
+    return DllCall(RectBase.GetTopWindow, 'ptr', IsObject(Hwnd) ? Hwnd.Hwnd : Hwnd, 'ptr')
+}
+
+/**
+ * @param Cmd -
+ * - GW_CHILD - 5 - The retrieved handle identifies the child window at the top of the Z order,
+ *  if the specified window is a parent window; otherwise, the retrieved handle is NULL. The
+ *  function examines only child windows of the specified window. It does not examine descendant
+ *  windows.
+ *
+ * - GW_ENABLEDPOPUP - 6 - The retrieved handle identifies the enabled popup window owned by the
+ *  specified window (the search uses the first such window found using GW_HwndNEXT); otherwise,
+ *  if there are no enabled popup windows, the retrieved handle is that of the specified window.
+ *
+ * - GW_HwndFIRST - 0 - The retrieved handle identifies the window of the same type that is highest
+ *  in the Z order. If the specified window is a topmost window, the handle identifies a topmost
+ *  window. If the specified window is a top-level window, the handle identifies a top-level
+ *  window. If the specified window is a child window, the handle identifies a sibling window.
+ *
+ * - GW_HwndLAST - 1 - The retrieved handle identifies the window of the same type that is lowest
+ *  in the Z order. If the specified window is a topmost window, the handle identifies a topmost
+ *  window. If the specified window is a top-level window, the handle identifies a top-level window.
+ *  If the specified window is a child window, the handle identifies a sibling window.
+ *
+ * - GW_HwndNEXT - 2 - The retrieved handle identifies the window below the specified window in
+ *  the Z order. If the specified window is a topmost window, the handle identifies a topmost
+ *  window. If the specified window is a top-level window, the handle identifies a top-level
+ *  window. If the specified window is a child window, the handle identifies a sibling window.
+ *
+ * - GW_HwndPREV - 3 - The retrieved handle identifies the window above the specified window in
+ *  the Z order. If the specified window is a topmost window, the handle identifies a topmost
+ *  window. If the specified window is a top-level window, the handle identifies a top-level
+ *  window. If the specified window is a child window, the handle identifies a sibling window.
+ *
+ * - GW_OWNER - 4 - The retrieved handle identifies the specified window's owner window, if any.
+ *  For more information, see Owned Windows.
+ */
+WinGet(Hwnd, Cmd) {
+    return DllCall(RectBase.GetWindow, 'ptr', IsObject(Hwnd) ? Hwnd.Hwnd : Hwnd, 'uint', Cmd, 'ptr')
+}
+
+;@endregion
+
+
+;@region WinRect funcs
+
+WinRectApply(wrc, InsertAfter := 0, Flags := 0) {
+    return DllCall(WinRect.SetWindowPos, 'ptr', wrc.Hwnd, 'ptr', InsertAfter, 'int', wrc.L, 'int', wrc.T, 'int', wrc.W, 'int', wrc.H, 'uint', Flags, 'int')
+}
+
+WinRectGetPos(wrc, &X?, &Y?, &W?, &H?) {
+    WinRectUpdate(wrc)
+    X := wrc.L
+    Y := wrc.T
+    W := wrc.R - wrc.L
+    H := wrc.B - wrc.T
+}
+
+WinRectMapPoints(wrc1, wrc2, points) {
+    buf := Buffer(points.Length * 4)
+    for coord in points {
+        NumPut('int', coord, buf, A_Index * 4 - 4)
+    }
+    result := DllCall(RectBase.MapWindowPoints, 'ptr', IsObject(wrc1) ? wrc1.Hwnd : wrc1, 'ptr', IsObject(wrc2) ? wrc2.Hwnd : wrc2, 'ptr', buf, 'uint', points.Length / 2)
+    loop points.Length {
+        points[A_Index] := NumGet(buf, A_Index * 4 - 4, 'int')
+    }
+    return result
+}
+
+/**
+ * @param {Integer} [X] - The new x-coordinate of the window.
+ * @param {Integer} [Y] - The new y-coordinate of the window.
+ * @param {Integer} [W] - The new Width of the window.
+ * @param {Integer} [H] - The new Height of the window.
+ * @param {Integer} [InsertAfter = 0] - Either the handle of another window to insert this
+ * window after, or one of the following:
+ * - HWND_BOTTOM - (HWND)1 : Places the window at the bottom of the Z order. If the <i>hWnd</i>
+ *   parameter identifies a topmost window, the window loses its topmost status and is placed at
+ *   the bottom of all other windows.
+ * - HWND_NOTOPMOST - (HWND)-2 : Places the window above all non-topmost windows (that is, behind
+ *   all topmost windows). This flag has no effect if the window is already a non-topmost window.
+ * - HWND_TOP - (HWND)0 : Places the window at the top of the Z order.
+ * - HWND_TOPMOST - (HWND)-1 : Places the window above all non-topmost windows. The window
+ *   maintains its topmost position even when it is deactivated.
+ * @param {Integer} [Flags = 0] - A combination of the following. Use "|" to combine, e.g.
+ * `Flags := 0x4000 | 0x0020 | 0x0010`.
+ * - SWP_ASYNCWINDOWPOS - 0x4000 : If the calling thread and the thread that owns the window are
+ *   attached to different input queues, the system posts the request to the thread that owns the
+ *   window. This prevents the calling thread from blocking its execution while other threads
+ *   process the request.
+ * - SWP_DEFERERASE - 0x2000 : Prevents generation of the WM_SYNCPAINT message.
+ * - SWP_DRAWFRAME - 0x0020 : Draws a frame (defined in the window's class description) around the
+ *   window.
+ * - SWP_FRAMECHANGED - 0x0020 : Applies new frame styles set using the SetWindowLong
+ *   function. Sends a WM_NCCALCSIZE message to the window, even if the window's size is not being
+ *   changed. If this flag is not specified, <b>WM_NCCALCSIZE</b> is sent only when the window's
+ *   size is being changed.
+ * - SWP_HIDEWINDOW - 0x0080 : Hides the window.
+ * - SWP_NOACTIVATE - 0x0010 : Does not activate the window. If this flag is not set, the window
+ *   is activated and moved to the top of either the topmost or non-topmost group (depending on the
+ *   setting of the <i>hWndInsertAfter</i> parameter).
+ * - SWP_NOCOPYBITS - 0x0100 : Discards the entire contents of the client area. If this flag is
+ *   not specified, the valid contents of the client area are saved and copied back into the client
+ *   area after the window is sized or repositioned.
+ * - SWP_NOMOVE - 0x0002 : Retains the current position (ignores <i>X</i> and <i>Y</i>
+ *   parameters).
+ * - SWP_NOOWNERZORDER - 0x0200 : Does not change the owner window's position in the Z order.
+ * - SWP_NOREDRAW - 0x0008 : Does not redraw changes. If this flag is set, no repainting of any
+ *   kind occurs. This applies to the client area, the nonclient area (including the title bar and
+ *   scroll bars), and any part of the parent window uncovered as a result of the window being
+ *   moved. When this flag is set, the application must explicitly invalidate or redraw any parts
+ *   of the window and parent window that need redrawing.
+ * - SWP_NOREPOSITION - 0x0200 : Same as the <b>SWP_NOOWNERZORDER</b> flag.
+ * - SWP_NOSENDCHANGING - 0x0400 : Prevents the window from receiving the WM_WINDOWPOSCHANGING
+ *   message.
+ * - SWP_NOSIZE - 0x0001 : Retains the current size (ignores the <i>cx</i> and <i>cy</i>
+ *   parameters).
+ * - SWP_NOZORDER - 0x0004 : Retains the current Z order (ignores the <i>hWndInsertAfter</i>
+ *   parameter).
+ * - SWP_SHOWWINDOW - 0x0040 : Displays the window.
+ */
+WinRectMove(wrc, X := 0, Y := 0, W := 0, H := 0, InsertAfter := 0, Flags := 0) {
+    if !DllCall(WinRect.SetWindowPos, 'ptr', wrc.Hwnd, 'ptr', InsertAfter, 'int', X, 'int', Y, 'int', W, 'int', H, 'uint', Flags, 'int') {
+        throw OSError()
+    }
+    ; Update the AHK Rect object's property values.
+    if !DllCall(WinRect.GetWindowRect, 'ptr', wrc.Hwnd, 'ptr', wrc, 'int') {
+        throw OSError()
+    }
+}
+
+WinRectUpdate(wrc) {
+    if IsObject(wrc) && HasProp(wrc, 'Flag') {
+        switch wrc.Flag, 0 {
+            case 0:
+                DllCall(RectBase.GetWindowRect, 'ptr', wrc.Hwnd, 'ptr', wrc, 'int')
+            case 1:
+                DllCall(RectBase.GetClientRect, 'ptr', wrc.Hwnd, 'ptr', wrc, 'int')
+            case 2:
+                if hresult := DllCall(RectBase.Dwmapi_DwmGetWindowAttribute, 'ptr', wrc.Hwnd, 'uint', 9, 'ptr', wrc, 'uint', 16, 'uint') {
+                    throw oserror('DwmGetWindowAttribute failed.', -1, hresult)
+                }
+        }
+    } else {
+        DllCall(RectBase.GetWindowRect, 'ptr', wrc.Hwnd, 'ptr', wrc, 'int')
+    }
+}
+
+;@endregion
+
+
+;@region Misc
+
+
+/**
+ * @description - Reorders the objects in an array according to the input options.
+ * @example
+ *  List := [
+ *      { L: 100, T: 100, Name: 1 }
+ *    , { L: 100, T: 150, Name: 2 }
+ *    , { L: 200, T: 100, Name: 3 }
+ *    , { L: 200, T: 150, Name: 4 }
+ *  ]
+ *  Rect.Order(List, L2R := true, T2B := true, 'H')
+ *  OutputDebug(_GetOrder()) ; 1 2 3 4
+ *  Rect.Order(List, L2R := true, T2B := true, 'V')
+ *  OutputDebug(_GetOrder()) ; 1 3 2 4
+ *  Rect.Order(List, L2R := false, T2B := true, 'H')
+ *  OutputDebug(_GetOrder()) ; 3 4 1 2
+ *  Rect.Order(List, L2R := false, T2B := false, 'H')
+ *  OutputDebug(_GetOrder()) ; 4 3 2 1
+ *
+ *  _GetOrder() {
+ *      for item in List {
+ *          Str .= item.Name ' '
+ *      }
+ *      return Trim(Str, ' ')
+ *  }
+ * @
+ * @param {Array} List - The array containing the objects to be ordered.
+ * @param {String} [Primary='X'] - Determines which axis is primarily considered when ordering
+ * the objects. When comparing two objects, if their positions along the Primary axis are
+ * equal, then the alternate axis is compared and used to break the tie. Otherwise, the alternate
+ * axis is ignored for that pair.
+ * - X: Check horizontal first.
+ * - Y: Check vertical first.
+ * @param {Boolean} [LeftToRight=true] - If true, the objects are ordered in ascending order
+ * along the X axis when the X axis is compared.
+ * @param {Boolean} [TopToBottom=true] - If true, the objects are ordered in ascending order
+ * along the Y axis when the Y axis is compared.
+ */
+OrderRects(List, Primary := 'X', LeftToRight := true, TopToBottom := true) {
+    ConditionH := LeftToRight ? (a, b) => a.L < b.L : (a, b) => a.L > b.L
+    ConditionV := TopToBottom ? (a, b) => a.T < b.T : (a, b) => a.T > b.T
+    if Primary = 'X' {
+        _InsertionSort(List, _ConditionFnH)
+    } else if Primary = 'Y' {
+        _InsertionSort(List, _ConditionFnV)
+    } else {
+        throw ValueError('Unexpected ``Primary`` value.', -1, Primary)
+    }
+
+    return
+
+    _InsertionSort(Arr, CompareFn) {
+        i := 1
+        loop Arr.Length - 1 {
+            Current := Arr[++i]
+            j := i - 1
+            loop j {
+                if CompareFn(Arr[j], Current) < 0
+                    break
+                Arr[j + 1] := Arr[j--]
+            }
+            Arr[j + 1] := Current
+        }
+    }
+    _ConditionFnH(a, b) {
+        if a.L == b.L {
+            if ConditionV(a, b) {
+                return -1
+            }
+        } else if ConditionH(a, b) {
+            return -1
+        }
+        return 1
+    }
+    _ConditionFnV(a, b) {
+        if a.T == b.T {
+            if ConditionH(a, b) {
+                return -1
+            }
+        } else if ConditionV(a, b) {
+            return -1
+        }
+        return 1
+    }
+}
+
+;@endregion
+
+
+MetaSetThreadDpiAwareness(Obj, Name, Params) {
+    Split := StrSplit(Name, '_')
+    if Split.Length == 2 && Obj.HasMethod(Split[1]) && SubStr(Split[2], 1, 1) = 'S' {
+        if StrLen(Split[2]) == 2 {
+            DllCall('SetThreadDpiAwarenessContext', 'ptr', -SubStr(Split[2], 2, 1), 'ptr')
+        } else {
+            DllCall('SetThreadDpiAwarenessContext', 'ptr', HasProp(Obj, 'DpiAwarenessContext') ? Obj.DpiAwarenessContext : DPI_AWARENESS_CONTEXT_DEFAULT ?? -4, 'ptr')
+        }
+        if Params.Length {
+            return Obj.%Split[1]%(Params*)
+        } else {
+            return Obj.%Split[1]%()
+        }
+    } else {
+        throw PropertyError('Property not found.', -1, Name)
+    }
+}
