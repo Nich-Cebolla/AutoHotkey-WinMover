@@ -18,6 +18,10 @@ Join the conversation on [AutoHotkey.com](https://www.autohotkey.com/boards/view
 
 Join the conversation on [Reddit.com](https://www.reddit.com/r/AutoHotkey/comments/1q1myw9/winmover_enable_global_clickanddrag_resizing/)
 
+# Example
+
+![gif depicting functionality](resources\example.gif)
+
 # Setup
 
 - Clone the repository.
