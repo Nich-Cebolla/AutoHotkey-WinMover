@@ -21,13 +21,13 @@ global WinMoverObj := WinMover(
 MOD1 & RButton::WinMoverObj.DynamicResize()
 MOD1 & LButton::WinMoverObj.DynamicMove()
 
-MOD1 & RButton::WinMoverObj.DynamicResize_CapsLock()
-MOD1 & LButton::WinMoverObj.DynamicMove_CapsLock()
+CapsLock & RButton::WinMoverObj.DynamicResize_CapsLock()
+CapsLock & LButton::WinMoverObj.DynamicMove_CapsLock()
 
 ; Use only one set
 
 MOD2 & RButton::WinMoverObj.DynamicResizeControl()
 MOD2 & LButton::WinMoverObj.DynamicMoveControl()
 
-MOD2 & RButton::WinMoverObj.DynamicResizeControl_CapsLock()
-MOD2 & LButton::WinMoverObj.DynamicMoveControl_CapsLock()
+CapsLock & RButton::WinMoverObj.DynamicResizeControl_CapsLock()
+CapsLock & LButton::WinMoverObj.DynamicMoveControl_CapsLock()

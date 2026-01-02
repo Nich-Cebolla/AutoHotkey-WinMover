@@ -1,4 +1,9 @@
-﻿
+﻿/*
+    Github: https://github.com/Nich-Cebolla/AutoHotkey-WinMover
+    Author: Nich-Cebolla
+    License: MIT
+*/
+
 class WinMover {
     static __New() {
         this.DeleteProp('__New')

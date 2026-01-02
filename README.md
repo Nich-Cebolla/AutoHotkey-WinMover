@@ -49,16 +49,16 @@ global WinMoverObj := WinMover(
 MOD1 & RButton::WinMoverObj.DynamicResize()
 MOD1 & LButton::WinMoverObj.DynamicMove()
 
-MOD1 & RButton::WinMoverObj.DynamicResize_CapsLock()
-MOD1 & LButton::WinMoverObj.DynamicMove_CapsLock()
+CapsLock & RButton::WinMoverObj.DynamicResize_CapsLock()
+CapsLock & LButton::WinMoverObj.DynamicMove_CapsLock()
 
 ; Use only one set
 
 MOD2 & RButton::WinMoverObj.DynamicResizeControl()
 MOD2 & LButton::WinMoverObj.DynamicMoveControl()
 
-MOD2 & RButton::WinMoverObj.DynamicResizeControl_CapsLock()
-MOD2 & LButton::WinMoverObj.DynamicMoveControl_CapsLock()
+CapsLock & RButton::WinMoverObj.DynamicResizeControl_CapsLock()
+CapsLock & LButton::WinMoverObj.DynamicMoveControl_CapsLock()
 
 ```
 
@@ -101,9 +101,15 @@ To move the active window to occupy the entirety of monitor 1, I:
 3. Press and release 3.
 4. Release the modifier.
 
-You can expand the built-in configurations by defining a map object and passing it to the "Presets" parameter of `WinMover.Prototype.__New`. The key is an integer and the value is an object with properties { X, Y, W, H }. The value of each property is a quotient that gets multiplied by the corresponding value for the target monitor.
+You can expand the built-in configurations by defining a map object and passing it to the "Presets" parameter of `WinMover.Prototype.__New`. The map keys correspond to the second key of the key chord. The map values are objects specifying the target position and size of the currently active window.
 
-For example, here is the built-in map object:
+The objects have properties `{ X, Y, W, H }`. Each property value is a quotient that is multiplied with the monitor's corresponding value.
+
+For example, if my object is `{ X: 0, Y: 0, W: 1, H: 1 }`, then the window will be moved to the top-left corner of the monitor and the window will be resized to occupy the monitor's entire work area.
+
+If my object is `{ X: 0.5, Y: 0, W: 0.5, H: 1 }`, then the window will be moved to the top-center position of the monitor's work area, and the window will be resized to occupy the right-half of the monitor's work area.
+
+For example, here is the default map object:
 ```ahk
 Presets := Map(
     1, { X: 0, Y: 0, W: 0.5, H: 1 }
