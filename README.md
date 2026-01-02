@@ -10,6 +10,14 @@ An AutoHotkey (AHK) script that makes it super easy to move / resize windows and
 - Click-and-drag to move the control beneath the mouse cursor.
 - Press a key chord combination to move and resize the currently active window to a predefined configuration.
 
+# AutoHotkey.com post
+
+Join the conversation on [AutoHotkey.com](https://www.autohotkey.com/boards/viewtopic.php?f=83&t=126656&p=560974#p560974)
+
+# Reddit.com post
+
+Join the conversation on [Reddit.com](https://www.reddit.com/r/AutoHotkey/comments/1q1myw9/winmover_enable_global_clickanddrag_resizing/)
+
 # Setup
 
 - Clone the repository.
