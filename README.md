@@ -36,6 +36,7 @@ Copy templates\template.ahk and open it in your code editor. That file contains:
 
 ```ahk
 #include <WinMover>
+#Requires AutoHotkey v2.0
 
 SetWinDelay 50
 
