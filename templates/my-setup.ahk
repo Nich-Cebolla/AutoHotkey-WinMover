@@ -1,6 +1,6 @@
 ﻿
 #include <WinMover>
-#Requires AutoHotkey v2.0
+#Requires AutoHotkey >=2.0-a
 #SingleInstance force
 
 SetWinDelay 50

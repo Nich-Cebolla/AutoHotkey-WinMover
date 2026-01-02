@@ -12,9 +12,13 @@ class WinMover {
         Proto := this.Prototype
         Proto.MonNum := 1
         Proto.Presets := Map(
-            1, { X: 0, Y: 0, W: 0.5, H: 1 }
-          , 2, { X: 0.5, Y: 0, W: 0.5, H: 1 }
-          , 3, { X: 0, Y: 0, W: 1, H: 1 }
+            1, { X: 0, Y: 0, W: 0.5, H: 1 } ; left-half
+          , 2, { X: 0.5, Y: 0, W: 0.5, H: 1 } ; right-half
+          , 3, { X: 0, Y: 0, W: 1, H: 1 } ; full-screen
+          , 'q', { X: 0, Y: 0, W: 0.5, H: 0.5 } ; top-left quarter
+          , 'w', { X: 0.5, Y: 0, W: 0.5, H: 0.5 } ; top-right quarter
+          , 'a', { X: 0, Y: 0.5, W: 0.5, H: 0.5 } ; bottom-left quarter
+          , 's', { X: 0.5, Y: 0.5, W: 0.5, H: 0.5 } ; bottom-right quarter
         )
         Proto.ChordTimerDuration := 2000
         Proto.TerminateMoveCallback := (*) => !GetKeyState('LButton', 'P')
@@ -30,7 +34,7 @@ class WinMover {
      * the second key of the key chord. The map values are objects specifying the target position
      * and size of the currently active window.
      *
-     * The objects have properties { X, Y, W, H }. Each property value is a quotient that is multiplied
+     * The objects have properties { X, Y, W, H }. Each property value is a number that is multiplied
      * with the monitor's corresponding value.
      *
      * For example, if my object is { X: 0, Y: 0, W: 1, H: 1 }, then the window will be moved to the
@@ -41,10 +45,14 @@ class WinMover {
      * position of the monitor's work area, and the window will be resized to occupy the right-half
      * of the monitor's work area.
      *
-     * The built-in default has three options:
+     * The built-in default has the following options:
      * - 1 : { X: 0, Y: 0, W: 0.5, H: 1 } (the window will occupy the left half of the monitor)
      * - 2 : { X: 0.5, Y: 0, W: 0.5, H: 1 } (the window will occupy the right half of the monitor)
      * - 3 : { X: 0, Y: 0, W: 1, H: 1 } (the window will occupy the entire monitor)
+     * - q : { X: 0, Y: 0, W: 0.5, H: 0.5 } (the window will occupy the top-left quarter of the monitor)
+     * - w : { X: 0.5, Y: 0, W: 0.5, H: 0.5 } (the window will occupy the top-right quarter of the monitor)
+     * - a : { X: 0, Y: 0.5, W: 0.5, H: 0.5 } (the window will occupy the bottom-left quarter of the monitor)
+     * - s : { X: 0.5, Y: 0.5, W: 0.5, H: 0.5 } (the window will occupy the bottom-right quarter of the monitor)
      *
      * See the README for more details.
      *

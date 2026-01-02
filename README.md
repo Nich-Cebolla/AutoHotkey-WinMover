@@ -40,7 +40,7 @@ Copy templates\template.ahk and open it in your code editor. That file contains:
 
 ```ahk
 #include <WinMover>
-#Requires AutoHotkey v2.0
+#Requires AutoHotkey >=2.0-a
 #SingleInstance force
 
 SetWinDelay 50
@@ -84,73 +84,39 @@ You only need one set of each group. If you use CapsLock as a modifier key, use 
 
 The methods were inspired by the [Easy Window Dragging (KDE style)](https://www.autohotkey.com/docs/v2/scripts/index.htm#EasyWindowDrag_(KDE)) example provided in the AHK official docs. There were some issues with the original, so I fixed those. I also expanded it to also work with window controls, and added in the key-chord functionality.
 
+## CapsLock
+
+The methods that end in "_CapsLock" are designed to ensure that the caps lock is returned to its original state when the function exits. These methods allow you to use the caps lock key like you normally would, and use it as a modifier key for these methods as well.
+
 ## Moving / resizing a window under the mouse cursor
 
-While holding the modifier key, left-click and drag the window to move the window.
-
-While holding the modifier key, right-click and drag the window to resize the window.
+The default configuration is:
+- While holding the modifier key, left-click and drag the window to move the window.
+- While holding the modifier key, right-click and drag the window to resize the window.
 
 ## Moving / resizing a control under the mouse cursor
 
-While holding the modifier key, left-click and drag the window to move the control. This may not work as expected for all controls, particularly if the control is a WebView2 (or similar) implementation.
+The default configuration is:
+- While holding the modifier key, left-click and drag the window to move the control.
+- While holding the modifier key, right-click and drag the window to resize the control.
 
-While holding the modifier key, right-click and drag the window to resize the control. This may not work as expected for all controls, particularly if the control is a WebView2 (or similar) implementation.
+This may not work as expected for all controls, particularly if the control is a WebView2 (or similar) implementation.
 
 ## Key chords
 
-"Chord" and "Chord_CapsLock" are designed to allow the user to specify a monitor using a number key, then specify an action afterward. The built-in options are:
-- 1 : Moves the currently active window to occupy the left half of the monitor's work area.
-- 2 : Moves the currently active window to occupy the right half of the monitor's work area.
-- 3 : Moves the currently active window to occupy the entire monitor's work area.
+`WinMover.Prototype.Chord` and `WinMover.Prototype.Chord_CapsLock` allow you to move and resize the active window to a specific spot.
 
-For example, say I have three monitors. Say I want to move the active window to the left side of the second monitor. To accomplish that, I:
-1. Press and hold the modifier.
-2. Press and release 2.
-3. Press and release 1.
-4. Release the modifier.
+You define the modifier key as the first parameter of `WinMover.Prototype.__New`. This is the "CHORDMODIFIER" seen in the template.
 
-To move the active window to occupy the entirety of monitor 1, I:
-1. Press and hold the modifier.
-2. Press and release 1.
-3. Press and release 3.
-4. Release the modifier.
+You define a map object where each item's key corresponds to the second key press of the key chord, and the value is an object with properties `{ X, Y, W, H }`. Each property value is a number that is multiplied with the monitor's corresponding value.
 
-You can expand the built-in configurations by defining a map object and passing it to the "Presets" parameter of `WinMover.Prototype.__New`. The map keys correspond to the second key of the key chord. The map values are objects specifying the target position and size of the currently active window.
+To invoke a key chord, you:
+1. Press and hold the modifier key.
+2. Press and release a number key (1-9) to specify the target monitor.
+3. Press and release another key to specify the target position / size of the window.
+4. Release the modifier key.
 
-The objects have properties `{ X, Y, W, H }`. Each property value is a quotient that is multiplied with the monitor's corresponding value.
-
-For example, if my object is `{ X: 0, Y: 0, W: 1, H: 1 }`, then the window will be moved to the top-left corner of the monitor and the window will be resized to occupy the monitor's entire work area.
-
-If my object is `{ X: 0.5, Y: 0, W: 0.5, H: 1 }`, then the window will be moved to the top-center position of the monitor's work area, and the window will be resized to occupy the right-half of the monitor's work area.
-
-For example, here is the default map object:
-```ahk
-Presets := Map(
-    1, { X: 0, Y: 0, W: 0.5, H: 1 } ; left-half
-  , 2, { X: 0.5, Y: 0, W: 0.5, H: 1 } ; right-half
-  , 3, { X: 0, Y: 0, W: 1, H: 1 } ; full-screen
-)
-```
-
-`obj.X` gets multiplied by the left coordinate of the monitor's work area, and that becomes the x coordinate of the window.
-`obj.Y` gets multiplied by the top coordinate of the monitor's work area, and that becomes the y coordinate of the window.
-`obj.W` gets multiplied by the width of the monitor's work area, and that becomes the width of the window.
-`obj.H` gets multiplied by the height of the monitor's work area, and that becomes the height of the window.
-
-If I wanted to be able to tile the windows using 1/4 of the monitor's work area, I would add objects like this:
-```ahk
-Presets := Map(
-    1, { X: 0, Y: 0, W: 0.5, H: 1 } ; left-half
-  , 2, { X: 0.5, Y: 0, W: 0.5, H: 1 } ; right-half
-  , 3, { X: 0, Y: 0, W: 1, H: 1 } ; full-screen
-  , 4, { X: 0, Y: 0, W: 0.5, H: 0.5 } ; top-left quarter
-  , 5, { X: 0.5, Y: 0, W: 0.5, H: 0.5 } ; top-right quarter
-  , 6, { X: 0, Y: 0.5, W: 0.5, H: 0.5 } ; bottom-left quarter
-  , 7, { X: 0.5, Y: 0.5, W: 0.5, H: 0.5 } ; bottom-right quarter
-)
-```
-
-The key does not have to be a number. The following is also valid:
+This is the default presets:
 ```ahk
 Presets := Map(
     1, { X: 0, Y: 0, W: 0.5, H: 1 } ; left-half
@@ -162,6 +128,45 @@ Presets := Map(
   , 's', { X: 0.5, Y: 0.5, W: 0.5, H: 0.5 } ; bottom-right quarter
 )
 ```
+
+For example, say I have three monitors. Say I want to move the active window to the left side of the third monitor. To accomplish that, I:
+1. Press and hold the modifier.
+2. Press and release "3" to specify the third monitor.
+3. Press and release "1" to select the "left-half" configuration seen above.
+4. Release the modifier.
+
+When the method executes, the second key press ("1" in this example) is used to retrieve the object from the map. Then:
+- `obj.X` gets multiplied by the left coordinate of the monitor's work area, and that becomes the x coordinate of the window.
+- `obj.Y` gets multiplied by the top coordinate of the monitor's work area, and that becomes the y coordinate of the window.
+- `obj.W` gets multiplied by the width of the monitor's work area, and that becomes the width of the window.
+- `obj.H` gets multiplied by the height of the monitor's work area, and that becomes the height of the window.
+
+For another example, say I want to move the active window to the bottom-right quarter of the primary monitor. To accomplish that, I:
+1. Press and hold the modifier.
+2. Press and release "1" to specify the primary monitor.
+3. Press and release "s" to select the "bottom-right quarter" configuration seen above.
+4. Release the modifier.
+
+To move the active window to occupy the entirety of monitor 2, I:
+1. Press and hold the modifier.
+2. Press and release "2" to specify the primary monitor.
+3. Press and release "3" to select the "full-screen" configuration seen above.
+4. Release the modifier.
+
+You can expand the built-in configurations by defining a map object and passing it to the "Presets" parameter of `WinMover.Prototype.__New`. For example, if you want to be able to tile windows in two rows of three, you would define a map object like this:
+
+```ahk
+Presets := Map(
+    'q', { X: 0, Y: 0, W: 0.333, H: 0.5 } ; top-left
+  , 'w', { X: 0.333, Y: 0, W: 0.333, H: 0.5 } ; top-middle
+  , 'e', { X: 0.666, Y: 0, W: 0.333, H: 0.5 } ; top-right
+  , 'a', { X: 0, Y: 0.5, W: 0.333, H: 0.5 } ; bottom-left
+  , 's', { X: 0.333, Y: 0.5, W: 0.333, H: 0.5 } ; bottom-middle
+  , 'd', { X: 0.666, Y: 0.5, W: 0.333, H: 0.5 } ; bottom-right
+)
+```
+
+You can specify as many configurations as you have keys, though slow machines may run into some timing issues with a very large number of configurations.
 
 ## Specifying a monitor
 
