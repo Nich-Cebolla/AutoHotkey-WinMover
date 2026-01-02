@@ -20,7 +20,7 @@ Join the conversation on [Reddit.com](https://www.reddit.com/r/AutoHotkey/commen
 
 # Example
 
-![gif depicting functionality](resources\example.gif)
+![gif depicting functionality](https://raw.githubusercontent.com/Nich-Cebolla/AutoHotkey-WinMover/refs/heads/main/resources/example.gif)
 
 # Setup
 
