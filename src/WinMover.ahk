@@ -339,16 +339,15 @@ class WinMover {
      */
     EnableKeyChords(ChordModifier) {
         this.ChordModifier := ChordModifier
-        this.InitialMonitorCount := MonitorGetCount()
-        mon_functions := this.MonitorFunctions := Map()
+        mon_functions := this.MonitorFunctions := []
         if ChordModifier = 'CapsLock' {
             functions := this.Functions := Map()
             for key in this.Presets {
                 functions.Set(key, ObjBindMethod(this, 'Chord_CapsLock', key))
             }
             loop MonitorGetCount() {
-                mon_functions.Set(A_Index, ObjBindMethod(this, 'Chord_CapsLock', A_Index))
-                HotKey(ChordModifier ' & ' A_Index, mon_functions.Get(A_Index), 'On')
+                mon_functions.Push(ObjBindMethod(this, 'Chord_CapsLock', A_Index))
+                HotKey(ChordModifier ' & ' A_Index, mon_functions[A_Index], 'On')
             }
         } else {
             functions := this.Functions := Map()
@@ -356,10 +355,12 @@ class WinMover {
                 functions.Set(key, ObjBindMethod(this, 'Chord', key))
             }
             loop MonitorGetCount() {
-                mon_functions.Set(A_Index, ObjBindMethod(this, 'Chord', A_Index))
-                HotKey(ChordModifier ' & ' A_Index, mon_functions.Get(A_Index), 'On')
+                mon_functions.Push(ObjBindMethod(this, 'Chord', A_Index))
+                HotKey(ChordModifier ' & ' A_Index, mon_functions[A_Index], 'On')
             }
         }
+        this.CallbackOnDeviceChange := WinMover_OnDeviceChange.Bind(this.id)
+        OnMessage(0x0219, this.CallbackOnDeviceChange, 1)
     }
     ShowTooltip(Str) {
         static N := [1,2,3,4,5,6,7]
@@ -377,6 +378,32 @@ class WinMover {
             N.Push(Z)
         }
     }
+    UpdateMonitorCount() {
+        if this.MonitorFunctions.Length > MonitorGetCount() {
+            ChordModifier := this.ChordModifier
+            mon_functions := this.MonitorFunctions
+            loop mon_functions.Length - MonitorGetCount() {
+                HotKey(ChordModifier ' & ' mon_functions.Length, mon_functions.RemoveAt(-1), 'Off')
+            }
+        } else if this.MonitorFunctions.Length < MonitorGetCount() {
+            ChordModifier := this.ChordModifier
+            mon_functions := this.MonitorFunctions
+            n := mon_functions.Length
+            if ChordModifier = 'CapsLock' {
+                loop MonitorGetCount() - n {
+                    i := A_Index + n
+                    mon_functions.Push(ObjBindMethod(this, 'Chord_CapsLock', i))
+                    HotKey(ChordModifier ' & ' i, mon_functions[i], 'On')
+                }
+            } else {
+                loop MonitorGetCount() - n {
+                    i := A_Index + n
+                    mon_functions.Push(ObjBindMethod(this, 'Chord', i))
+                    HotKey(ChordModifier ' & ' i, mon_functions[i], 'On')
+                }
+            }
+        }
+    }
     __Delete() {
         ObjPtrAddRef(this)
         if WinMover.Collection.Has(this.id) {
@@ -385,7 +412,7 @@ class WinMover {
     }
     __UnsetChordKeys() {
         modifier := this.ChordModifier
-        n := this.InitialMonitorCount
+        n := this.MonitorFunctions.Length
         for key, fn in this.Functions {
             if !IsInteger(key) || key = 0 || key > n {
                 HotKey(modifier ' & ' key, fn, 'Off')
@@ -426,6 +453,12 @@ WinMover_Timer_CapsLock(id) {
         } else {
             SetCapsLockState(1)
         }
+    }
+}
+
+WinMover_OnDeviceChange(id, *) {
+    if WinMover.Collection.Has(id) {
+        WinMover.Collection.Get(id).UpdateMonitorCount()
     }
 }
 

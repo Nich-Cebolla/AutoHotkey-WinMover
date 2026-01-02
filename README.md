@@ -145,8 +145,58 @@ Presets := Map(
 
 ## Specifying a monitor
 
-Currently, the monitors which are available to be used with key chords become locked in when the script launches. I'll need to search Microsoft's docs to see if there is an event or notification that gets broadcast when a monitor is added / removed. But for now, I have not done this.
-
 The monitors are selected using their relative position, **not** the monitor number as defined by the operating system. The primary monitor is always 1. Then, the top-left monitor is next, and it proceeds in left-right, top-down order. I found this to be more intuitive as a user of the function.
 
 You can customize this behavior. See the parameter hint above `dMon.GetOrder` for details.
+
+When a monitor is added / removed, the script automatically updates the hotkeys to reflect the change. For example, say I have the following monitors:
+
+<pre>
+ ____________
+ | 2  || 3  |
+ ------------
+   ______
+   | 1  |
+   ------
+</pre>
+
+Then I remove the top-right monitor...
+
+<pre>
+ ______
+ | 2  |
+ ------
+   ______
+   | 1  |
+   ------
+</pre>
+
+The script will unbind `modifier & 3`, so it no longer triggers the function.
+
+If I remove the top-left monitor instead of the top-right monitor...
+
+<pre>
+     ______
+     | 2  |
+     ------
+   ______
+   | 1  |
+   ------
+</pre>
+
+The script still unbinds `modifier & 3`, and `modifier & 2` will now target the top-right monitor.
+
+If I add the top-left monitor back...
+
+<pre>
+ ____________
+ | 2  || 3  |
+ ------------
+   ______
+   | 1  |
+   ------
+</pre>
+
+The script binds `modifier & 3`, and `modifier & 2` targets the top-left monitor, and `modifier & 3` targets the top-right monitor.
+
+It does not matter the monitor's actual monitor number nor the order in which they are plugged in, because they are selected according to relative position.
