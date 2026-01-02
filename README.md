@@ -18,7 +18,7 @@ Join the conversation on [AutoHotkey.com](https://www.autohotkey.com/boards/view
 
 Join the conversation on [Reddit.com](https://www.reddit.com/r/AutoHotkey/comments/1q1myw9/winmover_enable_global_clickanddrag_resizing/)
 
-# Example
+# Demonstration
 
 ![gif depicting functionality](https://raw.githubusercontent.com/Nich-Cebolla/AutoHotkey-WinMover/refs/heads/main/resources/example.gif)
 
