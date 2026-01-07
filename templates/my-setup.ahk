@@ -15,6 +15,9 @@ global WinMoverObj := WinMover('CapsLock', Map(
   , 'w', { X: 0.5, Y: 0, W: 0.5, H: 0.5 } ; top-right quarter
   , 'a', { X: 0, Y: 0.5, W: 0.5, H: 0.5 } ; bottom-left quarter
   , 's', { X: 0.5, Y: 0.5, W: 0.5, H: 0.5 } ; bottom-right quarter
+  , 'z', { X: 0, Y: 0, W: 0.4, H: 1 } ; left-third, slight overlap
+  , 'x', { X: 0.3, Y: 0, W: 0.4, H: 1 } ; middle-third, slight overlap
+  , 'c', { X: 0.6, Y: 0, W: 0.4, H: 1 } ; right-third, slight overlap
 ))
 
 CapsLock & RButton::WinMoverObj.DynamicResize_CapsLock()
