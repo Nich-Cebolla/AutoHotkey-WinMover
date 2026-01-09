@@ -149,7 +149,7 @@ For another example, say I want to move the active window to the bottom-right qu
 
 To move the active window to occupy the entirety of monitor 2, I:
 1. Press and hold the modifier.
-2. Press and release "2" to specify the primary monitor.
+2. Press and release "2" to specify the second monitor.
 3. Press and release "3" to select the "full-screen" configuration seen above.
 4. Release the modifier.
 
