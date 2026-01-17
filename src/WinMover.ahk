@@ -181,7 +181,7 @@ class WinMover {
                 break
             }
             MouseGetPos(&x2, &y2)
-            WinMove(wx + x2 - x, wy + y2 - y, , , hwnd)
+            WinMove(wx + x2 - x, wy + y2 - y, ww, wh, hwnd)
             sleep 10
         }
         CoordMode('Mouse', MouseMode)
