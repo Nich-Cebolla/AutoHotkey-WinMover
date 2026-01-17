@@ -92,6 +92,7 @@ class WinMover {
         }
     }
     Call(Hwnd, X, Y, W, H, MonNum?) {
+        DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
         mon := dMon[MonNum ?? this.MonNum]
         WinMove(
             mon.LeftW + mon.WidthW * X
@@ -219,6 +220,36 @@ class WinMover {
     DynamicMoveControl_CapsLock(*) {
         capsLockState := GetKeyState('CapsLock', 'T')
         this.DynamicMoveControl()
+        if GetKeyState('CapsLock', 'P') {
+            SetCapsLockState(capsLockState)
+        } else {
+            SetCapsLockState(!capsLockState)
+        }
+    }
+    DynamicMoveControlEx(*) {
+        MouseMode := CoordMode('Mouse', 'Client')
+        DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
+        MouseGetPos(&x, &y, , &hwnd, 2)
+        if !hwnd {
+            this.ShowTooltip('No window found')
+            return
+        }
+        ControlGetPos(&wx, &wy, &ww, &wh, hwnd)
+        cb := this.TerminateMoveCallback
+        loop {
+            if cb() {
+                break
+            }
+            MouseGetPos(&x2, &y2)
+            ControlMove(wx + x2 - x, wy + y2 - y, , , hwnd)
+            sleep 10
+        }
+        CoordMode('Mouse', MouseMode)
+        DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+    }
+    DynamicMoveControlEx_CapsLock(*) {
+        capsLockState := GetKeyState('CapsLock', 'T')
+        this.DynamicMoveControlEx()
         if GetKeyState('CapsLock', 'P') {
             SetCapsLockState(capsLockState)
         } else {
