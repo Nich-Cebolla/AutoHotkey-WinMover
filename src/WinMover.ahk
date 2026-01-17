@@ -714,9 +714,9 @@ class dMon {
      * `MonitorGet`, irrespective of the monitors' position relative to other monitors. With one set
      * of settings, monitor 2 may be at coordinate (-1000, -1200), and later if the user changes
      * the settings, monitor 2 may be at coordinate (1980, -750).
-     * - Using `UseOrderedMonitors` and `dMon[Index]` - `GetOrder` constructs an array of Hmon values,
-     * ordering them according to the input parameters. Monitors are ordered as a function of their
-     * position relative to one another. Example:
+     * - Using `UseOrderedMonitors` and `dMon[Index]` - `GetOrder` constructs an array of {@link dMon}
+     * objects, ordering them according to the input parameters. Monitors are ordered as a function of
+     * their position relative to one another. Example:
      *   - If the user has a three-monitor setup, where one monitor is physically to the left and
      * above the main display, and the third is physically to the right and above the main display,
      * `UseOrderedMonitors` allows your function to refer to a monitor by index where the index will
@@ -745,7 +745,7 @@ class dMon {
      *     ; Get a new list every function call in case the user plugs in / removes a monitor.
      *     List := dMon.GetOrder()
      *     ; Get the `dMon` instance.
-     *     MonUnit := dMon(List[MonitorIndex])
+     *     MonUnit := List[MonitorIndex]
      *     ; Move, fitting the window in the right-half of the monitor's work area.
      *     WinMove(MonUnit.MidXW, MonUnit.TW, MonUnit.WW / 2, MonUnit.HW, Hwnd)
      * }
