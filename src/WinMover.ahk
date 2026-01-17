@@ -101,6 +101,7 @@ class WinMover {
           , mon.HW * H
           , Hwnd
         )
+        DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
     }
     CallHelper(Hwnd, PresetKey) {
         if this.Presets.Has(PresetKey) {
