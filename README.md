@@ -135,11 +135,24 @@ For example, say I have three monitors. Say I want to move the active window to 
 3. Press and release "1" to select the "left-half" configuration seen above.
 4. Release the modifier.
 
-When the method executes, the second key press ("1" in this example) is used to retrieve the object from the map. Then:
-- `obj.X` gets multiplied by the left coordinate of the monitor's work area, and that becomes the x coordinate of the window.
-- `obj.Y` gets multiplied by the top coordinate of the monitor's work area, and that becomes the y coordinate of the window.
-- `obj.W` gets multiplied by the width of the monitor's work area, and that becomes the width of the window.
-- `obj.H` gets multiplied by the height of the monitor's work area, and that becomes the height of the window.
+When the method executes, the second key press ("1" in this example) is used to retrieve the object from the map.
+Then the following code executes:
+```ahk
+DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
+mon := dMon[MonNum ?? this.MonNum]
+WinMove(
+    ; <left coordinate of monitor's work area> + obj.X * <width of monitor's work area>
+    mon.LW + mon.WW * X
+    ; <top coordinate of monitor's work area> + obj.Y * <height of monitor's work area>
+  , mon.TW + mon.HW * Y
+    ; <width of monitor's work area> * obj.W
+  , mon.WW * W
+    ; <height of monitor's work area> * obj.H
+  , mon.HW * H
+  , Hwnd
+)
+DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+```
 
 For another example, say I want to move the active window to the bottom-right quarter of the primary monitor. To accomplish that, I:
 1. Press and hold the modifier.
