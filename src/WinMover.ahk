@@ -686,7 +686,7 @@ class dMon {
      * @returns {dMon}
      */
     static Get(N := 1, *) {
-        return this(this.FromIndex(N))
+        return this.FromIndex(N)
     }
     /**
      * @description - Returns an integer representing 1 pixel to the right of the right-most edge
