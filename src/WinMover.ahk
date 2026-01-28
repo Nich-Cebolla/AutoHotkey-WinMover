@@ -95,12 +95,13 @@ class WinMover {
         DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
         mon := dMon[MonNum ?? this.MonNum]
         WinMove(
-            mon.LW + mon.WW * X
-          , mon.TW + mon.HW * Y
-          , mon.WW * W
-          , mon.HW * H
+            x := (mon.LW + mon.WW * X)
+          , y := (mon.TW + mon.HW * Y)
+          , w := (mon.WW * W)
+          , h := (mon.HW * H)
           , Hwnd
         )
+        OutputDebug('x: ' x '`ny: ' y '`nw: ' w '`nh: ' h '`n')
         DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
     }
     CallHelper(Hwnd, PresetKey) {
@@ -2887,12 +2888,6 @@ class PopupWindow_Logfont {
             'uint'
         ) {
             throw OSError('Failed to get font object.')
-        }
-    }
-    __Delete() {
-        if this.Handle {
-            DllCall('DeleteObject', 'ptr', this.Handle)
-            this.Handle := 0
         }
     }
     /**
