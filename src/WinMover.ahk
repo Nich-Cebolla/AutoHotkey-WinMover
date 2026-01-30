@@ -424,6 +424,49 @@ class WinMover {
         this.CallbackOnDeviceChange := WinMover_OnDeviceChange.Bind(this.id)
         OnMessage(0x0219, this.CallbackOnDeviceChange, 1)
     }
+    /**
+     * @description - Moves a window to the specified position and size. Instead of specifying
+     * absolute values, your code is expected to specify a position that is relative to a monitor's
+     * left side, and a size that is relative to the size of the monitor's work area.
+     * @param {Integer} XRatio - `XRatio` is multiplied by the width of the monitor's work area and
+     * added to the left-coordinate of the monitor's work area. For example, if `XRatio = 0.5`,
+     * the window's left side would be moved to the middle of the monitor's work area. If
+     * `XRatio = 0.666`, the window's left side would be moved such that two-thirds of the width
+     * of the monitor's work area is to the left of the window's left side.
+     * @param {Integer} YRatio - `YRatio` is multiplied by the height of the monitor's work area and
+     * added to the top-coordinate of the monitor's work area. For example, if `YRatio = 0.5`,
+     * the window's top side would be moved to the middle of the monitor's work area. If
+     * `YRatio = 0.666`, the window's top side would be moved such that two-thirds of the height
+     * of the monitor's work area is above the window's top side.
+     * @param {Integer} WRatio - `WRatio` is multiplied by the width of the monitor's work area, and
+     * that value is used as the window's new width.
+     * @param {Integer} HRatio - `HRatio` is multiplied by the height of the monitor's work area, and
+     * that value is used as the window's new height.
+     * @param {Integer} [MonNum = 1] - The monitor to which to move the window. By default, the
+     * primary monitor is 1, then the order of the monitors proceeds in top-down, left-right order.
+     * The monitor number assigned by the operating system is ignored here, unless your code
+     * changes the default settings. See {@link dMon.GetOrder} for more information.
+     * @param {String} [WinTitle = "A"] - See {@link https://www.autohotkey.com/docs/v2/misc/WinTitle.htm}.
+     * @param {String} [WinText = ""] - See {@link https://www.autohotkey.com/docs/v2/misc/WinTitle.htm}.
+     * @param {String} [ExcludeTitle = ""] - See {@link https://www.autohotkey.com/docs/v2/misc/WinTitle.htm}.
+     * @param {String} [ExcludeText = ""] - See {@link https://www.autohotkey.com/docs/v2/misc/WinTitle.htm}.
+     */
+    Move(XRatio, YRatio, WRatio, HRatio, MonNum := 1, WinTitle := 'A', WinText := "", ExcludeTitle := "", ExcludeText := "") {
+        if hwnd := WinExist(WinTitle, WinText, ExcludeTitle, ExcludeText) {
+            DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
+            mon := dMon[MonNum]
+            WinMove(
+                mon.LW + mon.WW * XRatio
+              , mon.TW + mon.HW * YRatio
+              , mon.WW * WRatio
+              , mon.HW * HRatio
+              , hwnd
+            )
+            DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+        } else {
+            this.ShowTooltip('Window not found.')
+        }
+    }
     ShowTooltip(Str) {
         this.PopupWindow.SetText(Str)
         this.PopupWindow.ShowByMouse()
