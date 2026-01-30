@@ -9,9 +9,9 @@ class WinMover {
         this.DeleteProp('__New')
         this.Collection := Map()
         this.Collection.CaseSense := this.Collection.Default := false
-        Proto := this.Prototype
-        Proto.MonNum := 1
-        Proto.Presets := Map(
+        proto := this.Prototype
+        proto.MonNum := 1
+        proto.Presets := Map(
             1, { X: 0, Y: 0, W: 0.5, H: 1 } ; left-half
           , 2, { X: 0.5, Y: 0, W: 0.5, H: 1 } ; right-half
           , 3, { X: 0, Y: 0, W: 1, H: 1 } ; full-screen
@@ -20,10 +20,11 @@ class WinMover {
           , 'a', { X: 0, Y: 0.5, W: 0.5, H: 0.5 } ; bottom-left quarter
           , 's', { X: 0.5, Y: 0.5, W: 0.5, H: 0.5 } ; bottom-right quarter
         )
-        Proto.ChordTimerDuration := 2000
-        Proto.TerminateMoveCallback := (*) => !GetKeyState('LButton', 'P')
-        Proto.TerminateSizeCallback := (*) => !GetKeyState('RButton', 'P')
+        proto.ChordTimerDuration := 2000
+        proto.TerminateMoveCallback := (*) => !GetKeyState('LButton', 'P')
+        proto.TerminateSizeCallback := (*) => !GetKeyState('RButton', 'P')
         proto.PopupWindowOptions := { BackColor: 0xF9F9C7, Duration: -2000, OffsetX: 15 }
+        proto.pattern_standardModifier := '[*~$]*(?:[<>]*[!+^#][*~$]*){1,2}'
     }
     /**
      * @param {String} [ChordModifier] - If set, the modifier key that is used for key chords.
@@ -395,8 +396,8 @@ class WinMover {
     EnableKeyChords(ChordModifier) {
         this.ChordModifier := ChordModifier
         mon_functions := this.MonitorFunctions := []
+        functions := this.Functions := Map()
         if ChordModifier = 'CapsLock' {
-            functions := this.Functions := Map()
             for key in this.Presets {
                 functions.Set(key, ObjBindMethod(this, 'Chord_CapsLock', key))
             }
@@ -404,8 +405,15 @@ class WinMover {
                 mon_functions.Push(ObjBindMethod(this, 'Chord_CapsLock', A_Index))
                 HotKey(ChordModifier ' & ' A_Index, mon_functions[A_Index], 'On')
             }
+        } else if RegExMatch(ChordModifier, this.pattern_standardModifier) {
+            for key in this.Presets {
+                functions.Set(key, ObjBindMethod(this, 'Chord', key))
+            }
+            loop MonitorGetCount() {
+                mon_functions.Push(ObjBindMethod(this, 'Chord', A_Index))
+                HotKey(ChordModifier A_Index, mon_functions[A_Index], 'On')
+            }
         } else {
-            functions := this.Functions := Map()
             for key in this.Presets {
                 functions.Set(key, ObjBindMethod(this, 'Chord', key))
             }
@@ -454,17 +462,31 @@ class WinMover {
         }
     }
     __SetChordKeys() {
-        modifier := this.ChordModifier
-        for key, fn in this.Functions {
-            HotKey(modifier ' & ' key, fn, 'On')
+        ChordModifier := this.ChordModifier
+        if RegExMatch(ChordModifier, this.pattern_standardModifier) {
+            for key, fn in this.Functions {
+                HotKey(ChordModifier key, fn, 'On')
+            }
+        } else {
+            for key, fn in this.Functions {
+                HotKey(ChordModifier ' & ' key, fn, 'On')
+            }
         }
     }
     __UnsetChordKeys() {
-        modifier := this.ChordModifier
+        ChordModifier := this.ChordModifier
         n := this.MonitorFunctions.Length
-        for key, fn in this.Functions {
-            if !IsInteger(key) || key = 0 || key > n {
-                HotKey(modifier ' & ' key, fn, 'Off')
+        if RegExMatch(ChordModifier, this.pattern_standardModifier) {
+            for key, fn in this.Functions {
+                if !IsInteger(key) || key = 0 || key > n {
+                    HotKey(ChordModifier key, fn, 'Off')
+                }
+            }
+        } else {
+            for key, fn in this.Functions {
+                if !IsInteger(key) || key = 0 || key > n {
+                    HotKey(ChordModifier ' & ' key, fn, 'Off')
+                }
             }
         }
     }
