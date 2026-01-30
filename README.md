@@ -133,6 +133,29 @@ Parameters
 8. **{String}** [ExcludeTitle = ""] - See https://www.autohotkey.com/docs/v2/misc/WinTitle.htm
 9. **{String}** [ExcludeText = ""] - See https://www.autohotkey.com/docs/v2/misc/WinTitle.htm
 
+The following is an example of using `WinMover.Prototype.Move` to accomplish 3x3 tiling on the
+primary monitor.
+
+```ahk
+#include <WinMover>
+#Requires AutoHotkey >=2.0-a
+#SingleInstance force
+
+SetWinDelay 50
+
+global WinMoverObj := WinMover()
+
+#Numpad1::WinMoverObj.Move(0, 0, 0.333, 0.333, 1)
+#Numpad2::WinMoverObj.Move(0.333, 0, 0.333, 0.333, 1)
+#Numpad3::WinMoverObj.Move(0.666, 0, 0.333, 0.333, 1)
+#Numpad4::WinMoverObj.Move(0, 0.333, 0.333, 0.333, 1)
+#Numpad5::WinMoverObj.Move(0.333, 0.333, 0.333, 0.333, 1)
+#Numpad6::WinMoverObj.Move(0.666, 0.333, 0.333, 0.333, 1)
+#Numpad7::WinMoverObj.Move(0, 0.666, 0.333, 0.333, 1)
+#Numpad8::WinMoverObj.Move(0.333, 0.666, 0.333, 0.333, 1)
+#Numpad9::WinMoverObj.Move(0.666, 0.666, 0.333, 0.333, 1)
+```
+
 ## Key chords
 
 `WinMover.Prototype.Chord` and `WinMover.Prototype.Chord_CapsLock` allow you to move and resize the active window to a specific spot.
