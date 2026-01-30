@@ -24,7 +24,7 @@ class WinMover {
         proto.TerminateMoveCallback := (*) => !GetKeyState('LButton', 'P')
         proto.TerminateSizeCallback := (*) => !GetKeyState('RButton', 'P')
         proto.PopupWindowOptions := { BackColor: 0xF9F9C7, Duration: -2000, OffsetX: 15 }
-        proto.pattern_standardModifier := '[*~$]*(?:[<>]*[!+^#][*~$]*){1,2}'
+        proto.pattern_standardModifier := '[*~$]*(?:[<>]?[!+^#][*~$]*){1,2}'
     }
     /**
      * @param {String} [ChordModifier] - If set, the modifier key that is used for key chords.
@@ -433,8 +433,14 @@ class WinMover {
         if this.MonitorFunctions.Length > MonitorGetCount() {
             ChordModifier := this.ChordModifier
             mon_functions := this.MonitorFunctions
-            loop mon_functions.Length - MonitorGetCount() {
-                HotKey(ChordModifier ' & ' mon_functions.Length, mon_functions.RemoveAt(-1), 'Off')
+            if RegExMatch(ChordModifier, this.pattern_standardModifier) {
+                loop mon_functions.Length - MonitorGetCount() {
+                    HotKey(ChordModifier mon_functions.Length, mon_functions.RemoveAt(-1), 'Off')
+                }
+            } else {
+                loop mon_functions.Length - MonitorGetCount() {
+                    HotKey(ChordModifier ' & ' mon_functions.Length, mon_functions.RemoveAt(-1), 'Off')
+                }
             }
         } else if this.MonitorFunctions.Length < MonitorGetCount() {
             ChordModifier := this.ChordModifier
@@ -445,6 +451,12 @@ class WinMover {
                     i := A_Index + n
                     mon_functions.Push(ObjBindMethod(this, 'Chord_CapsLock', i))
                     HotKey(ChordModifier ' & ' i, mon_functions[i], 'On')
+                }
+            } else if RegExMatch(ChordModifier, this.pattern_standardModifier) {
+                loop MonitorGetCount() - n {
+                    i := A_Index + n
+                    mon_functions.Push(ObjBindMethod(this, 'Chord', i))
+                    HotKey(ChordModifier i, mon_functions[i], 'On')
                 }
             } else {
                 loop MonitorGetCount() - n {
