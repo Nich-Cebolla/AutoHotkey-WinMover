@@ -66,7 +66,6 @@ class WinMover {
      * mouse cursor. You can define the options with this parameter.
      */
     __New(ChordModifier?, Presets?, ChordTimerDuration := 2000, PopupWindowOptions?) {
-        this.ChordModifier := ChordModifier
         ; Assign a unique id and cache a reference to this object within the
         ; ParseXlsx.Collection map. This allows related objects to obtain a reference
         ; to one another without creating a reference cycle.
@@ -89,6 +88,7 @@ class WinMover {
         this.ChordTimerDuration := -Abs(ChordTimerDuration)
         this.Timer := 0
         if IsSet(ChordModifier) {
+            this.ChordModifier := ChordModifier
             this.EnableKeyChords(ChordModifier)
         }
     }
