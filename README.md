@@ -102,6 +102,37 @@ The default configuration is:
 
 This may not work as expected for all controls, particularly if the control is a WebView2 (or similar) implementation.
 
+## WinMover.Prototype.Move
+
+`WinMover.Prototype.Move` moves a window to the specified position and size. Instead of specifying
+absolute values, your code is expected to specify a position that is relative to a monitor's
+left and top sides, and a size that is relative to the size of the monitor's work area.
+
+Parameters
+
+1. **{Integer}** XRatio - `XRatio` is multiplied by the width of the monitor's work area and
+   added to the left-coordinate of the monitor's work area. For example, if `XRatio = 0.5`,
+   the window's left side would be moved to the middle of the monitor's work area. If
+   `XRatio = 0.666`, the window's left side would be moved such that two-thirds of the width
+   of the monitor's work area is to the left of the window's left side.
+2. **{Integer}** YRatio - `YRatio` is multiplied by the height of the monitor's work area and
+   added to the top-coordinate of the monitor's work area. For example, if `YRatio = 0.5`,
+   the window's top side would be moved to the middle of the monitor's work area. If
+   `YRatio = 0.666`, the window's top side would be moved such that two-thirds of the height
+   of the monitor's work area is above the window's top side.
+3. **{Integer}** WRatio - `WRatio` is multiplied by the width of the monitor's work area, and
+   that value is used as the window's new width.
+4. **{Integer}** HRatio - `HRatio` is multiplied by the height of the monitor's work area, and
+   that value is used as the window's new height.
+5. **{Integer}** [MonNum = 1] - The monitor to which to move the window. By default, the
+   primary monitor is 1, then the order of the monitors proceeds in top-down, left-right order.
+   The monitor number assigned by the operating system is ignored here, unless your code
+   changes the default settings. See the parameter hint above `dMon.GetOrder` for more information.
+6. **{String}** [WinTitle = "A"] - See https://www.autohotkey.com/docs/v2/misc/WinTitle.htm
+7. **{String}** [WinText = ""] - See https://www.autohotkey.com/docs/v2/misc/WinTitle.htm
+8. **{String}** [ExcludeTitle = ""] - See https://www.autohotkey.com/docs/v2/misc/WinTitle.htm
+9. **{String}** [ExcludeText = ""] - See https://www.autohotkey.com/docs/v2/misc/WinTitle.htm
+
 ## Key chords
 
 `WinMover.Prototype.Chord` and `WinMover.Prototype.Chord_CapsLock` allow you to move and resize the active window to a specific spot.

@@ -427,7 +427,7 @@ class WinMover {
     /**
      * @description - Moves a window to the specified position and size. Instead of specifying
      * absolute values, your code is expected to specify a position that is relative to a monitor's
-     * left side, and a size that is relative to the size of the monitor's work area.
+     * left and top sides, and a size that is relative to the size of the monitor's work area.
      * @param {Integer} XRatio - `XRatio` is multiplied by the width of the monitor's work area and
      * added to the left-coordinate of the monitor's work area. For example, if `XRatio = 0.5`,
      * the window's left side would be moved to the middle of the monitor's work area. If
