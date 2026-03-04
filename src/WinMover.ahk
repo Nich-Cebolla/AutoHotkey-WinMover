@@ -422,7 +422,7 @@ class WinMover {
             }
         }
         this.CallbackOnDeviceChange := WinMover_OnDeviceChange.Bind(this.id)
-        OnMessage(0x0219, this.CallbackOnDeviceChange, 1)
+        OnMessage(0x0219, this.CallbackOnDeviceChange, 1) ; WM_DEVICECHANGE
     }
     /**
      * @description - Moves a window to the specified position and size. Instead of specifying
