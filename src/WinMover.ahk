@@ -608,7 +608,7 @@ class dMon {
      * @returns {dMon} - The {@link dMon} of the monitor that shares the largest area of intersection
      * with the rectangle.
      */
-    static FromDimensions(X, Y, W, H) => this(this.FromPos(X, Y, x+w, y+h))
+    static FromDimensions(X, Y, W, H) => this.FromPos(X, Y, X + W, Y + H)
     /**
      * @description - Gets the monitor handle using the dimensions of a rectangle.
      * @param {Integer} X - The x-coordinate of the Top-Left corner of the rectangle.
@@ -618,7 +618,7 @@ class dMon {
      * @returns {Integer} - The handle of the monitor that shares the largest area of intersection
      * with the rectangle.
      */
-    static FromDimensionsH(X, Y, W, H) => this.FromPos(X, Y, x+w, y+h)
+    static FromDimensionsH(X, Y, W, H) => this.FromPosH(X, Y, X + W, Y + H)
     /**
      * @description - Returns a {@link dMon} object using the monitor number assigned by the operating
      * system.
@@ -702,7 +702,7 @@ class dMon {
      * with the rectangle.
      */
     static FromPos(L, T, R, B) {
-        return DllCall('MonitorFromRect', 'ptr', Display_Rect(L, T, R, B), 'UInt', 0, 'Uptr')
+        return this(DllCall('MonitorFromRect', 'ptr', Display_Rect(L, T, R, B), 'UInt', 0, 'Uptr'))
     }
     /**
      * @description - Gets the monitor handle using a bounding rectangle.
@@ -773,7 +773,7 @@ class dMon {
     static GetNonvisiblePosition() {
         r := 0
         loop MonitorGetCount() {
-            MonitorGet(, , &_r)
+            MonitorGet(A_Index, , , &_r)
             r := Max(r, _r)
         }
         return r + 1
@@ -931,12 +931,12 @@ class dMon {
     }
     static __GetOrdered(N := 1, *) {
         Params := this.__UseOrderedMonitors
-        return this(this.GetOrder(
+        return this.GetOrder(
             HasProp(Params, 'Primary') ? Params.Primary : unset
           , HasProp(Params, 'LeftToRight') ? Params.LeftToRight : unset
           , HasProp(Params, 'TopToBottom') ? Params.TopToBottom : unset
           , HasProp(Params, 'OriginIs1') ? Params.OriginIs1 : unset
-        )[N])
+        )[N]
     }
 
     static UseOrderedMonitors {
