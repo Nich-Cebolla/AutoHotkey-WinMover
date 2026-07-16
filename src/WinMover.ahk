@@ -94,15 +94,18 @@ class WinMover {
     }
     Call(Hwnd, X, Y, W, H, MonNum?) {
         DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
-        mon := dMon[MonNum ?? this.MonNum]
-        WinMove(
-            mon.LW + mon.WW * X
-          , mon.TW + mon.HW * Y
-          , mon.WW * W
-          , mon.HW * H
-          , Hwnd
-        )
-        DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+        try {
+            mon := dMon[MonNum ?? this.MonNum]
+            WinMove(
+                mon.LW + mon.WW * X
+              , mon.TW + mon.HW * Y
+              , mon.WW * W
+              , mon.HW * H
+              , Hwnd
+            )
+        } finally {
+            DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+        }
     }
     CallHelper(Hwnd, PresetKey) {
         if this.Presets.Has(PresetKey) {
@@ -132,22 +135,15 @@ class WinMover {
         if this.Timer {
             SetTimer(this.Timer, 0)
             this.Timer := 0
-            this.CallHelper(WinGetId('A'), Value)
-            ; If caps lock was off when "Chord" was first called
-            if this.capsLockState {
-                ; If caps lock is currently down
-                if GetKeyState('CapsLock', 'P') {
-                    SetCapsLockState(1)
-                } else {
-                    SetCapsLockState(0)
+            try {
+                this.CallHelper(WinGetId('A'), Value)
+            } finally {
+                try {
+                    this.__UnsetChordKeys()
+                } finally {
+                    this.__RestoreCapsLockState(this.CapsLockState)
                 }
-            ; If caps lock was on when "Chord" was first called and if caps lock is currently down
-            } else if GetKeyState('CapsLock', 'P') {
-                SetCapsLockState(0)
-            } else {
-                SetCapsLockState(1)
             }
-            this.__UnsetChordKeys()
         } else {
             this.MonNum := Value
             this.CapsLockState := capsLockState
@@ -159,152 +155,161 @@ class WinMover {
     DynamicMove(*) {
         MouseMode := CoordMode('Mouse', 'Screen')
         DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
-        MouseGetPos(&x, &y, &hwnd)
-        if !hwnd {
-            this.ShowTooltip('No window found')
-            return
-        }
-        if WinGetMinMax(hwnd) {
-            WinRestore(hwnd)
-            mon := dMon.FromWin(hwnd)
-            WinMove(
-                wx := mon.LeftW
-              , wy := mon.TopW
-              , ww := mon.WidthW
-              , wh := mon.HeightW
-              , hwnd
-            )
-        } else {
-            WinGetPos(&wx, &wy, &ww, &wh, hwnd)
-        }
-        cb := this.TerminateMoveCallback
-        loop {
-            if cb() {
-                break
+        try {
+            MouseGetPos(&x, &y, &hwnd)
+            if !hwnd {
+                this.ShowTooltip('No window found')
+                return
             }
-            MouseGetPos(&x2, &y2)
-            WinMove(wx + x2 - x, wy + y2 - y, ww, wh, hwnd)
-            sleep 10
+            if WinGetMinMax(hwnd) {
+                WinRestore(hwnd)
+                mon := dMon.FromWin(hwnd)
+                WinMove(
+                    wx := mon.LeftW
+                  , wy := mon.TopW
+                  , ww := mon.WidthW
+                  , wh := mon.HeightW
+                  , hwnd
+                )
+            } else {
+                WinGetPos(&wx, &wy, &ww, &wh, hwnd)
+            }
+            cb := this.TerminateMoveCallback
+            loop {
+                if cb() {
+                    break
+                }
+                MouseGetPos(&x2, &y2)
+                WinMove(wx + x2 - x, wy + y2 - y, ww, wh, hwnd)
+                sleep 10
+            }
+        } finally {
+            CoordMode('Mouse', MouseMode)
+            DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
         }
-        CoordMode('Mouse', MouseMode)
-        DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
     }
     DynamicMove_CapsLock(*) {
         capsLockState := GetKeyState('CapsLock', 'T')
-        this.DynamicMove()
-        if GetKeyState('CapsLock', 'P') {
-            SetCapsLockState(capsLockState)
-        } else {
-            SetCapsLockState(!capsLockState)
+        try {
+            this.DynamicMove()
+        } finally {
+            this.__RestoreCapsLockState(capsLockState)
         }
     }
     DynamicMoveControl(*) {
         MouseMode := CoordMode('Mouse', 'Client')
         DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
-        MouseGetPos(&x, &y, , &hwnd, 2)
-        if !hwnd {
-            this.ShowTooltip('No window found')
-            return
-        }
-        ControlGetPos(&wx, &wy, &ww, &wh, hwnd)
-        cb := this.TerminateMoveCallback
-        loop {
-            if cb() {
-                break
+        try {
+            MouseGetPos(&x, &y, , &hwnd, 2)
+            if !hwnd {
+                this.ShowTooltip('No window found')
+                return
             }
-            MouseGetPos(&x2, &y2)
-            ControlMove(wx + x2 - x, wy + y2 - y, , , hwnd)
-            sleep 10
+            ControlGetPos(&wx, &wy, &ww, &wh, hwnd)
+            cb := this.TerminateMoveCallback
+            loop {
+                if cb() {
+                    break
+                }
+                MouseGetPos(&x2, &y2)
+                ControlMove(wx + x2 - x, wy + y2 - y, , , hwnd)
+                sleep 10
+            }
+        } finally {
+            CoordMode('Mouse', MouseMode)
+            DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
         }
-        CoordMode('Mouse', MouseMode)
-        DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
     }
     DynamicMoveControl_CapsLock(*) {
         capsLockState := GetKeyState('CapsLock', 'T')
-        this.DynamicMoveControl()
-        if GetKeyState('CapsLock', 'P') {
-            SetCapsLockState(capsLockState)
-        } else {
-            SetCapsLockState(!capsLockState)
+        try {
+            this.DynamicMoveControl()
+        } finally {
+            this.__RestoreCapsLockState(capsLockState)
         }
     }
     DynamicMoveControlEx(*) {
         MouseMode := CoordMode('Mouse', 'Client')
         DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
-        MouseGetPos(&x, &y, , &hwnd, 2)
-        if !hwnd {
-            this.ShowTooltip('No window found')
-            return
-        }
-        ControlGetPos(&wx, &wy, &ww, &wh, hwnd)
-        cb := this.TerminateMoveCallback
-        loop {
-            if cb() {
-                break
+        try {
+            MouseGetPos(&x, &y, , &hwnd, 2)
+            if !hwnd {
+                this.ShowTooltip('No window found')
+                return
             }
-            MouseGetPos(&x2, &y2)
-            ControlMove(wx + x2 - x, wy + y2 - y, , , hwnd)
-            sleep 10
+            ControlGetPos(&wx, &wy, &ww, &wh, hwnd)
+            cb := this.TerminateMoveCallback
+            loop {
+                if cb() {
+                    break
+                }
+                MouseGetPos(&x2, &y2)
+                ControlMove(wx + x2 - x, wy + y2 - y, , , hwnd)
+                sleep 10
+            }
+        } finally {
+            CoordMode('Mouse', MouseMode)
+            DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
         }
-        CoordMode('Mouse', MouseMode)
-        DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
     }
     DynamicMoveControlEx_CapsLock(*) {
         capsLockState := GetKeyState('CapsLock', 'T')
-        this.DynamicMoveControlEx()
-        if GetKeyState('CapsLock', 'P') {
-            SetCapsLockState(capsLockState)
-        } else {
-            SetCapsLockState(!capsLockState)
+        try {
+            this.DynamicMoveControlEx()
+        } finally {
+            this.__RestoreCapsLockState(capsLockState)
         }
     }
     DynamicResize(*) {
         MouseMode := CoordMode('Mouse', 'Screen')
         DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
-        MouseGetPos(&x, &y, &hwnd)
-        if !hwnd {
-            this.ShowTooltip('No window found')
-            return
-        }
-        if WinGetMinMax(hwnd) {
-            WinRestore(hwnd)
-            mon := dMon.FromWin(hwnd)
-            WinMove(
-                wx := mon.LeftW
-              , wy := mon.TopW
-              , ww := mon.WidthW
-              , wh := mon.HeightW
-              , hwnd
-            )
-        } else {
-            WinGetPos(&wx, &wy, &ww, &wh, hwnd)
-        }
-        if x > wx + ww / 2 {
-            x_quotient := 1
-            GetX := XCallback1
-        } else {
-            x_quotient := -1
-            GetX := XCallback2
-        }
-        if y > wy + wh / 2 {
-            y_quotient := 1
-            GetY := YCallback1
-        } else {
-            y_quotient := -1
-            GetY := YCallback2
-        }
-        cb := this.TerminateSizeCallback
-        loop {
-            if cb() {
-                break
+        try {
+            MouseGetPos(&x, &y, &hwnd)
+            if !hwnd {
+                this.ShowTooltip('No window found')
+                return
             }
-            MouseGetPos(&x2, &y2)
-            WinMove(GetX(), GetY(), ww + (x2 - x) * x_quotient, wh + (y2 - y) * y_quotient, hwnd)
-            sleep 10
-        }
+            if WinGetMinMax(hwnd) {
+                WinRestore(hwnd)
+                mon := dMon.FromWin(hwnd)
+                WinMove(
+                    wx := mon.LeftW
+                  , wy := mon.TopW
+                  , ww := mon.WidthW
+                  , wh := mon.HeightW
+                  , hwnd
+                )
+            } else {
+                WinGetPos(&wx, &wy, &ww, &wh, hwnd)
+            }
+            if x > wx + ww / 2 {
+                x_quotient := 1
+                GetX := XCallback1
+            } else {
+                x_quotient := -1
+                GetX := XCallback2
+            }
+            if y > wy + wh / 2 {
+                y_quotient := 1
+                GetY := YCallback1
+            } else {
+                y_quotient := -1
+                GetY := YCallback2
+            }
+            cb := this.TerminateSizeCallback
+            loop {
+                if cb() {
+                    break
+                }
+                MouseGetPos(&x2, &y2)
+                WinMove(GetX(), GetY(), ww + (x2 - x) * x_quotient, wh + (y2 - y) * y_quotient, hwnd)
+                sleep 10
+            }
 
-        CoordMode('Mouse', MouseMode)
-        DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+        } finally {
+            CoordMode('Mouse', MouseMode)
+            DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+        }
         return
 
         XCallback1() {
@@ -322,48 +327,50 @@ class WinMover {
     }
     DynamicResize_CapsLock(*) {
         capsLockState := GetKeyState('CapsLock', 'T')
-        this.DynamicResize()
-        if GetKeyState('CapsLock', 'P') {
-            SetCapsLockState(capsLockState)
-        } else {
-            SetCapsLockState(!capsLockState)
+        try {
+            this.DynamicResize()
+        } finally {
+            this.__RestoreCapsLockState(capsLockState)
         }
     }
     DynamicResizeControl(*) {
         MouseMode := CoordMode('Mouse', 'Client')
         DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
-        MouseGetPos(&x, &y, , &hwnd, 2)
-        if !hwnd {
-            this.ShowTooltip('No window found')
-            return
-        }
-        ControlGetPos(&wx, &wy, &ww, &wh, hwnd)
-        if x > wx + ww / 2 {
-            x_quotient := 1
-            GetX := XCallback1
-        } else {
-            x_quotient := -1
-            GetX := XCallback2
-        }
-        if y > wy + wh / 2 {
-            y_quotient := 1
-            GetY := YCallback1
-        } else {
-            y_quotient := -1
-            GetY := YCallback2
-        }
-        cb := this.TerminateSizeCallback
-        loop {
-            if cb() {
-                break
+        try {
+            MouseGetPos(&x, &y, , &hwnd, 2)
+            if !hwnd {
+                this.ShowTooltip('No window found')
+                return
             }
-            MouseGetPos(&x2, &y2)
-            ControlMove(GetX(), GetY(), ww + (x2 - x) * x_quotient, wh + (y2 - y) * y_quotient, hwnd)
-            sleep 10
-        }
+            ControlGetPos(&wx, &wy, &ww, &wh, hwnd)
+            if x > wx + ww / 2 {
+                x_quotient := 1
+                GetX := XCallback1
+            } else {
+                x_quotient := -1
+                GetX := XCallback2
+            }
+            if y > wy + wh / 2 {
+                y_quotient := 1
+                GetY := YCallback1
+            } else {
+                y_quotient := -1
+                GetY := YCallback2
+            }
+            cb := this.TerminateSizeCallback
+            loop {
+                if cb() {
+                    break
+                }
+                MouseGetPos(&x2, &y2)
+                ControlMove(GetX(), GetY(), ww + (x2 - x) * x_quotient, wh + (y2 - y) * y_quotient, hwnd)
+                sleep 10
+            }
 
-        CoordMode('Mouse', MouseMode)
-        DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+        } finally {
+            CoordMode('Mouse', MouseMode)
+            DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+        }
 
         return
 
@@ -382,11 +389,10 @@ class WinMover {
     }
     DynamicResizeControl_CapsLock(*) {
         capsLockState := GetKeyState('CapsLock', 'T')
-        this.DynamicResizeControl()
-        if GetKeyState('CapsLock', 'P') {
-            SetCapsLockState(capsLockState)
-        } else {
-            SetCapsLockState(!capsLockState)
+        try {
+            this.DynamicResizeControl()
+        } finally {
+            this.__RestoreCapsLockState(capsLockState)
         }
     }
     /**
@@ -454,15 +460,18 @@ class WinMover {
     Move(XRatio, YRatio, WRatio, HRatio, MonNum := 1, WinTitle := 'A', WinText := "", ExcludeTitle := "", ExcludeText := "") {
         if hwnd := WinExist(WinTitle, WinText, ExcludeTitle, ExcludeText) {
             DpiAwareness := DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')
-            mon := dMon[MonNum]
-            WinMove(
-                mon.LW + mon.WW * XRatio
-              , mon.TW + mon.HW * YRatio
-              , mon.WW * WRatio
-              , mon.HW * HRatio
-              , hwnd
-            )
-            DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+            try {
+                mon := dMon[MonNum]
+                WinMove(
+                    mon.LW + mon.WW * XRatio
+                  , mon.TW + mon.HW * YRatio
+                  , mon.WW * WRatio
+                  , mon.HW * HRatio
+                  , hwnd
+                )
+            } finally {
+                DllCall('SetThreadDpiAwarenessContext', 'ptr', DpiAwareness, 'ptr')
+            }
         } else {
             this.ShowTooltip('Window not found.')
         }
@@ -515,6 +524,13 @@ class WinMover {
             WinMover.Collection.Delete(this.id)
         }
     }
+    __RestoreCapsLockState(capsLockState) {
+        if GetKeyState('CapsLock', 'P') {
+            SetCapsLockState(capsLockState)
+        } else {
+            SetCapsLockState(!capsLockState)
+        }
+    }
     __SetChordKeys() {
         ChordModifier := this.ChordModifier
         if RegExMatch(ChordModifier, this.pattern_standardModifier) {
@@ -557,20 +573,10 @@ WinMover_Timer_CapsLock(id) {
     if WinMover.Collection.Has(id) {
         _winMover := WinMover.Collection.Get(id)
         _winMover.Timer := 0
-        _winMover.__UnsetChordKeys()
-        ; If caps lock was off when "Chord" was first called
-        if _winMover.capsLockState {
-            ; If caps lock is currently down
-            if GetKeyState('CapsLock', 'P') {
-                SetCapsLockState(1)
-            } else {
-                SetCapsLockState(0)
-            }
-        ; If caps lock was on when "Chord" was first called and if caps lock is currently down
-        } else if GetKeyState('CapsLock', 'P') {
-            SetCapsLockState(0)
-        } else {
-            SetCapsLockState(1)
+        try {
+            _winMover.__UnsetChordKeys()
+        } finally {
+            _winMover.__RestoreCapsLockState(_winMover.CapsLockState)
         }
     }
 }
@@ -2810,37 +2816,39 @@ class PopupWindow_ControlFitText {
             if IsSet(ThreadDpiAwarenessContext) {
                 originalContext := DllCall('SetThreadDpiAwarenessContext', 'ptr', ThreadDpiAwarenessContext, 'ptr')
             }
-            lf := PopupWindow_Logfont(Ctrl.Hwnd)
-            G := Gui()
-            fontOpt := 's' lf.FontSize ' w' lf.Weight
-            if lf.Quality {
-                fontOpt .= ' q' lf.Quality
+            try {
+                lf := PopupWindow_Logfont(Ctrl.Hwnd)
+                G := Gui()
+                fontOpt := 's' lf.FontSize ' w' lf.Weight
+                if lf.Quality {
+                    fontOpt .= ' q' lf.Quality
+                }
+                if lf.Italic {
+                    fontOpt .= ' italic'
+                }
+                if lf.StrikeOut {
+                    fontOpt .= ' strike'
+                }
+                if lf.Underline {
+                    fontOpt .= ' underline'
+                }
+                G.SetFont(fontOpt, lf.FaceName)
+                _ctrl := G.Add(Ctrl.Type, Opt, 'line')
+                _ctrl.GetPos(, , , &h)
+                _ctrl2 := G.Add(Ctrl.Type, Opt, 'line`r`nline')
+                _ctrl2.GetPos(, , &w2, &h2)
+                sz := _Proc(_ctrl)
+                sz2 := _Proc(_ctrl2)
+                G.Destroy()
+                this.W := w2 - sz2.W
+                this.H := h - sz.H
+                this.LinePadding := h2 - sz2.H - h + sz.H
+                this.LineHeight := (h2 - this.H) / 2
+            } finally {
+                if IsSet(originalContext) {
+                    DllCall('SetThreadDpiAwarenessContext', 'ptr', originalContext, 'ptr')
+                }
             }
-            if lf.Italic {
-                fontOpt .= ' italic'
-            }
-            if lf.StrikeOut {
-                fontOpt .= ' strike'
-            }
-            if lf.Underline {
-                fontOpt .= ' underline'
-            }
-            G.SetFont(fontOpt, lf.FaceName)
-            _ctrl := G.Add(Ctrl.Type, Opt, 'line')
-            _ctrl.GetPos(, , , &h)
-            _ctrl2 := G.Add(Ctrl.Type, Opt, 'line`r`nline')
-            _ctrl2.GetPos(, , &w2, &h2)
-            sz := _Proc(_ctrl)
-            sz2 := _Proc(_ctrl2)
-            G.Destroy()
-            this.W := w2 - sz2.W
-            this.H := h - sz.H
-            this.LinePadding := h2 - sz2.H - h + sz.H
-            this.LineHeight := (h2 - this.H) / 2
-            if IsSet(originalContext) {
-                DllCall('SetThreadDpiAwarenessContext', 'ptr', originalContext, 'ptr')
-            }
-
             return
 
             _Proc(Ctrl) {
@@ -3199,10 +3207,13 @@ PopupWindow_MoveAdjacent(Subject, Target?, ContainerRect?, Dimension := 'X', Pre
         tarB := Target.B
     } else {
         mode := CoordMode('Mouse', 'Screen')
-        MouseGetPos(&tarL, &tarT)
-        tarR := tarL
-        tarB := tarT
-        CoordMode('Mouse', mode)
+        try {
+            MouseGetPos(&tarL, &tarT)
+            tarR := tarL
+            tarB := tarT
+        } finally {
+            CoordMode('Mouse', mode)
+        }
     }
     tarW := tarR - tarL
     tarH := tarB - tarT
@@ -3393,8 +3404,12 @@ PopupWindow_MoveByMouse(Hwnd, ContainerRect?, Dimension := 'X', Prefer := '', Pa
     if HRESULT := DllCall('Dwmapi\DwmGetWindowAttribute', 'ptr', Hwnd, 'uint', 9, 'ptr', OutRect, 'uint', 16, 'uint') {
         throw OSError('``DwmGetWindowAttribute`` failed.', , 'HRESULT: ' Format('{:X}', HRESULT))
     }
-    CoordMode('Mouse', 'Screen')
-    MouseGetPos(&x, &y)
+    mode := CoordMode('Mouse', 'Screen')
+    try {
+        MouseGetPos(&x, &y)
+    } finally {
+        CoordMode('Mouse', mode)
+    }
     result := PopupWindow_MoveAdjacent(OutRect, { L: x, T: y, R: x, B: y }, ContainerRect ?? unset, Dimension, Prefer, Padding, InsufficientSpaceAction)
     if !result || InsufficientSpaceAction {
         WinMove(OutRect.L, OutRect.T, , , Hwnd)
